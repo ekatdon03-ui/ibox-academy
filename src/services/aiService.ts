@@ -1,6 +1,6 @@
 import { Type } from "@google/genai";
 
-const TEXT_MODEL = "gemini-2.0-flash";
+const TEXT_MODEL = "gemini-2.5-flash";
 
 // In the browser all requests go through our server proxy → Google Gemini.
 // This bypasses Russian ISP blocks and keeps the real API key on the server.
