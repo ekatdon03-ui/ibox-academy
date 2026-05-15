@@ -16,6 +16,41 @@ import { contentService } from './services/contentService';
 import { auth } from './lib/firebase';
 import { signInAnonymously, signInWithCustomToken } from 'firebase/auth';
 
+// ─── Bitrix24 auto-login ──────────────────────────────────────────────────────
+// Returns a Firebase user after signing in via Bitrix token (custom token),
+// or falls back to anonymous auth so Firestore rules still work.
+async function doBitrixAuth(): Promise<void> {
+  try {
+    const BX24 = (window as any).BX24;
+    const bxAuth = BX24.getAuth?.();
+    if (!bxAuth?.access_token) {
+      await signInAnonymously(auth);
+      return;
+    }
+
+    const domain = (bxAuth.domain || window.location.hostname)
+      .replace(/^https?:\/\//, '').replace(/\/$/, '');
+
+    const resp = await fetch('/api/bitrix-auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bitrixDomain: domain, accessToken: bxAuth.access_token })
+    });
+
+    if (resp.ok) {
+      const { customToken } = await resp.json();
+      await signInWithCustomToken(auth, customToken);
+    } else {
+      // Server not configured with service account yet — use anonymous as fallback
+      console.warn('Custom token auth failed, using anonymous');
+      await signInAnonymously(auth);
+    }
+  } catch (e) {
+    console.warn('Bitrix auth error, falling back to anonymous:', e);
+    try { await signInAnonymously(auth); } catch (_) {}
+  }
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('training');
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -41,9 +76,7 @@ export default function App() {
       }
       setResults(allResults);
       setUsers(allUsers);
-    } catch (e) {
-      console.warn("Refresh failed", e);
-    }
+    } catch (e) { console.warn('Refresh failed', e); }
   };
 
   const handleClosePlayer = () => {
@@ -56,25 +89,20 @@ export default function App() {
     if (!profile.id) return profile;
     try {
       let role = await contentService.resolveUserRole(profile.id, profile.role);
-      const updatedProfile = { ...profile, role: role as any, email: firebaseUser.email || profile.email || '' };
-
-      // Superadmin override
-      if (updatedProfile.email === 'oap.ibox.company@gmail.com') {
-        updatedProfile.role = 'admin';
-      }
-
-      await contentService.syncUserRole(updatedProfile.id, updatedProfile.role, firebaseUser);
-      await contentService.saveProfile(updatedProfile, firebaseUser);
-      return updatedProfile;
+      const updated = { ...profile, role: role as any, email: firebaseUser.email || profile.email || '' };
+      if (updated.email === 'oap.ibox.company@gmail.com') updated.role = 'admin';
+      await contentService.syncUserRole(updated.id, updated.role, firebaseUser);
+      await contentService.saveProfile(updated, firebaseUser);
+      return updated;
     } catch (e) {
-      console.warn("Session sync failed:", e);
+      console.warn('Session sync failed:', e);
       return profile;
     }
   };
 
   useEffect(() => {
     const initApp = async () => {
-      // Load public content immediately (no auth needed)
+      // 1. Load public content immediately
       try {
         const [allCourses, allGlossary] = await Promise.all([
           contentService.getAllCourses(),
@@ -82,79 +110,71 @@ export default function App() {
         ]);
         setCourses(allCourses);
         setGlossary(allGlossary);
-      } catch (e) { /* will retry after auth */ }
+      } catch (_) {}
 
-      // In Bitrix24 iframe — wait for BX24 SDK, then auto-login via our /api/bitrix-auth endpoint
+      // 2. If in Bitrix24 — do auth BEFORE registering the listener,
+      //    so the listener fires only AFTER we have a user.
       await bitrixService.init();
       if (bitrixService.isAvailable() && !auth.currentUser) {
-        try {
-          const BX24 = (window as any).BX24;
-          const bxAuth = BX24.getAuth();
-          const domain = bxAuth.domain || window.location.hostname;
-
-          const resp = await fetch('/api/bitrix-auth', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ bitrixDomain: domain, accessToken: bxAuth.access_token })
-          });
-
-          if (resp.ok) {
-            const { customToken } = await resp.json();
-            await signInWithCustomToken(auth, customToken);
-            // onAuthStateChanged fires next and loads the full profile
-          } else {
-            // Fallback: anonymous auth if server isn't configured yet
-            console.warn('Bitrix auth endpoint failed, falling back to anonymous');
-            await signInAnonymously(auth);
-          }
-        } catch (e) {
-          console.warn("Bitrix sign-in failed:", e);
-          await signInAnonymously(auth).catch(() => {});
-        }
+        await doBitrixAuth();
       }
 
-      // Firebase auth state listener
+      // 3. Auth state listener — by now auth.currentUser is set (if Bitrix),
+      //    so it fires with the logged-in user, not with null.
       auth.onAuthStateChanged(async (firebaseUser) => {
         if (firebaseUser) {
           let currentProfile: UserProfile | null = null;
 
-          // ── Bitrix24 context ──
+          // ── Bitrix24 context: enrich profile with Bitrix data ──
           if (bitrixService.isAvailable()) {
-            const bProfile = await bitrixService.getCurrentUser();
-            const dbProfile = await contentService.resolveUserProfile(firebaseUser.uid);
+            try {
+              const [bxUser, dbProfile] = await Promise.all([
+                bitrixService.getCurrentUser(),
+                contentService.resolveUserProfile(firebaseUser.uid)
+              ]);
 
-            if (bProfile) {
-              currentProfile = {
-                id: firebaseUser.uid,
-                name: `${bProfile.NAME || ''} ${bProfile.LAST_NAME || ''}`.trim() || dbProfile?.name || 'Сотрудник Bitrix',
-                position: bProfile.WORK_POSITION || dbProfile?.position || 'Сотрудник',
-                role: bProfile.IS_ADMIN ? 'admin' : (dbProfile?.role as any || 'employee'),
-                avatar: bProfile.PERSONAL_PHOTO || dbProfile?.avatar || '',
-                score: dbProfile?.score ?? 0,
-                department: dbProfile?.department || 'Общий отдел',
-                email: bProfile.EMAIL || firebaseUser.email || '',
-                assignedCourses: dbProfile?.assignedCourses || [],
-                bitrixId: bProfile.ID
-              };
-              await contentService.syncUserProfile(currentProfile);
-            } else if (dbProfile) {
-              currentProfile = { ...dbProfile, id: firebaseUser.uid };
+              if (bxUser) {
+                // Get department name
+                let deptName = dbProfile?.department || 'Общий отдел';
+                if (bxUser.UF_DEPARTMENT?.[0]) {
+                  try {
+                    const depts = await bitrixService.getDepartments();
+                    const dept = depts.find((d: any) => String(d.ID) === String(bxUser.UF_DEPARTMENT[0]));
+                    if (dept) deptName = dept.NAME;
+                  } catch (_) {}
+                }
+
+                currentProfile = {
+                  id: firebaseUser.uid,
+                  bitrixId: String(bxUser.ID),
+                  name: `${bxUser.NAME || ''} ${bxUser.LAST_NAME || ''}`.trim() || dbProfile?.name || 'Сотрудник',
+                  email: bxUser.EMAIL || firebaseUser.email || dbProfile?.email || '',
+                  position: bxUser.WORK_POSITION || dbProfile?.position || 'Сотрудник iBOX',
+                  avatar: bxUser.PERSONAL_PHOTO || dbProfile?.avatar || '',
+                  role: bxUser.IS_ADMIN ? 'admin' : (dbProfile?.role as any || 'employee'),
+                  score: dbProfile?.score ?? 0,
+                  department: deptName,
+                  assignedCourses: dbProfile?.assignedCourses || []
+                };
+                // Save/update in Firestore
+                await contentService.syncUserProfile(currentProfile);
+              } else {
+                currentProfile = dbProfile;
+              }
+            } catch (e) {
+              console.warn('Bitrix profile load error:', e);
             }
           }
 
-          // ── Saved session ──
+          // ── Non-Bitrix context ──
           if (!currentProfile) {
             const savedRaw = localStorage.getItem('academy_user');
             const dbProfile = await contentService.resolveUserProfile(firebaseUser.uid);
 
             if (savedRaw) {
               const parsed = JSON.parse(savedRaw);
-              currentProfile = {
-                ...parsed,
-                ...dbProfile,
-                id: firebaseUser.uid,
-                email: firebaseUser.email || parsed.email || dbProfile?.email || ''
-              };
+              currentProfile = { ...parsed, ...dbProfile, id: firebaseUser.uid,
+                email: firebaseUser.email || parsed.email || dbProfile?.email || '' };
             } else {
               currentProfile = dbProfile || {
                 id: firebaseUser.uid,
@@ -180,7 +200,7 @@ export default function App() {
               contentService.getAllResults().then(setResults);
             }
 
-            // Reload courses/glossary now that user is authenticated
+            // Reload courses/glossary with auth context
             try {
               const [allCourses, allGlossary] = await Promise.all([
                 contentService.getAllCourses(),
@@ -188,13 +208,13 @@ export default function App() {
               ]);
               setCourses(allCourses);
               setGlossary(allGlossary);
-            } catch (e) {}
+            } catch (_) {}
           }
         } else {
-          // No firebase user — check localStorage for cached profile
+          // No Firebase user — show cached profile or login screen
           const savedUser = localStorage.getItem('academy_user');
           if (savedUser) {
-            try { setUser(JSON.parse(savedUser)); } catch (e) {}
+            try { setUser(JSON.parse(savedUser)); } catch (_) {}
           }
         }
 
@@ -216,7 +236,7 @@ export default function App() {
   };
 
   const handleLogout = async () => {
-    try { await auth.signOut(); } catch (e) {}
+    try { await auth.signOut(); } catch (_) {}
     setUser(null);
     localStorage.removeItem('academy_user');
   };
@@ -243,12 +263,12 @@ export default function App() {
 
   const renderView = () => {
     switch (activeTab) {
-      case 'training':   return <TrainingView courses={courses} user={user} onSelectCourse={setSelectedCourse} refreshTrigger={refreshTrigger} />;
-      case 'glossary':   return <GlossaryView />;
-      case 'profile':    return <ProfileView user={user} onLogout={handleLogout} onUpdateUser={handleUpdateUser} courses={courses} />;
-      case 'simulator':  return <SimulatorView courses={courses} user={user} onRefreshUser={handleRefreshUser} />;
-      case 'analytics':  return <AnalyticsView results={results} courses={courses} currentUser={user} employees={users} />;
-      case 'admin':      return (
+      case 'training':  return <TrainingView courses={courses} user={user} onSelectCourse={setSelectedCourse} refreshTrigger={refreshTrigger} />;
+      case 'glossary':  return <GlossaryView />;
+      case 'profile':   return <ProfileView user={user} onLogout={handleLogout} onUpdateUser={handleUpdateUser} courses={courses} />;
+      case 'simulator': return <SimulatorView courses={courses} user={user} onRefreshUser={handleRefreshUser} />;
+      case 'analytics': return <AnalyticsView results={results} courses={courses} currentUser={user} employees={users} />;
+      case 'admin':     return (
         <AdminPanel
           courses={courses}
           onAddCourse={handleAddCourse}
@@ -266,22 +286,13 @@ export default function App() {
   return (
     <div className="h-screen w-full flex bg-ibox-bg relative overflow-hidden">
       <Sidebar user={user} activeTab={activeTab} setActiveTab={setActiveTab} onLogout={handleLogout} />
-
       <div className="flex-1 flex flex-col pl-72">
         <Navbar user={user} />
-        <main className="flex-1 mt-20 overflow-y-auto">
-          {renderView()}
-        </main>
+        <main className="flex-1 mt-20 overflow-y-auto">{renderView()}</main>
       </div>
-
       <AIAssistant allCourses={courses} glossary={glossary} />
-
       {selectedCourse && (
-        <CoursePlayer
-          course={selectedCourse}
-          user={user}
-          onClose={handleClosePlayer}
-        />
+        <CoursePlayer course={selectedCourse} user={user} onClose={handleClosePlayer} />
       )}
     </div>
   );
