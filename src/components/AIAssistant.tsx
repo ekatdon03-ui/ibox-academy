@@ -53,20 +53,22 @@ export default function AIAssistant({ allCourses, glossary }: AIAssistantProps) 
 
     try {
       const kbContext = contentService.getKnowledgeBaseContext(allCourses, glossary);
-      
+
       const response = await aiService.smartAssistant(
-        userText, 
-        kbContext, 
-        messages.slice(-10), // Context depth
+        userText,
+        kbContext,
+        messages.slice(-10),
         settings?.assistantPrompt
       );
-      
+
       const cleanResponse = (response || "Извините, не удалось найти информацию.")
         .split('\n').filter(line => line.trim()).join('\n');
 
       setMessages(prev => [...prev, { role: 'model', parts: [{ text: cleanResponse }] }]);
-    } catch (error) {
-      setMessages(prev => [...prev, { role: 'model', parts: [{ text: "Произошла ошибка связи с ИИ." }] }]);
+    } catch (error: any) {
+      console.error('[AIAssistant] Error:', error);
+      const detail = error?.message || String(error);
+      setMessages(prev => [...prev, { role: 'model', parts: [{ text: `Ошибка связи с ИИ: ${detail}` }] }]);
     } finally {
       setIsLoading(false);
     }

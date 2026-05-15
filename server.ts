@@ -94,24 +94,31 @@ async function startServer() {
 
   // ─────────────────────────────────────────────────────────────────────
   // GEMINI API PROXY
+  // Browser → POST /api/ai-proxy/v1beta/models/... → Google Gemini
+  // The SDK sends apiKey:'proxy' in x-goog-api-key header;
+  // we replace it with the real key here.
   // ─────────────────────────────────────────────────────────────────────
-  app.all('/api/ai-proxy*', async (req, res) => {
+  app.all(['/api/ai-proxy', '/api/ai-proxy/*'], async (req, res) => {
     const GEMINI_KEY = process.env.GEMINI_API_KEY;
     if (!GEMINI_KEY) {
+      console.error('[AI Proxy] GEMINI_API_KEY not set');
       return res.status(503).json({ error: 'GEMINI_API_KEY not configured on server' });
     }
+
     try {
-      const proxyPath = req.path.replace('/api/ai-proxy', '') || '/';
-      // Rebuild query string without the placeholder 'proxy' key
+      // Strip our prefix to get the real Gemini API path
+      const proxyPath = req.path.replace(/^\/api\/ai-proxy/, '') || '/';
+
+      // Build query string — drop any 'key' param the SDK might have added
       const searchParams = new URLSearchParams();
       for (const [k, v] of Object.entries(req.query)) {
         if (k !== 'key') searchParams.append(k, String(v));
       }
-      const qs = searchParams.toString();
-      const targetUrl = `https://generativelanguage.googleapis.com${proxyPath}${qs ? '?' + qs : ''}`;
+      searchParams.set('key', GEMINI_KEY);
 
-      // Forward request with the real API key in both header and query param
-      // (SDK sends x-goog-api-key header; Google also accepts ?key= param)
+      const targetUrl = `https://generativelanguage.googleapis.com${proxyPath}?${searchParams}`;
+      console.log(`[AI Proxy] ${req.method} ${proxyPath}`);
+
       const response = await axios({
         method: req.method as any,
         url: targetUrl,
@@ -120,22 +127,46 @@ async function startServer() {
           'Content-Type': req.headers['content-type'] || 'application/json',
           'x-goog-api-key': GEMINI_KEY,
         },
-        params: { key: GEMINI_KEY },
         responseType: 'stream',
         timeout: 180_000
       });
 
       res.status(response.status);
-      if (response.headers['content-type']) res.setHeader('Content-Type', response.headers['content-type']);
+      if (response.headers['content-type']) res.setHeader('Content-Type', String(response.headers['content-type']));
       response.data.pipe(res);
     } catch (error: any) {
+      console.error('[AI Proxy] Error:', error.message);
       if (error.response) {
+        console.error('[AI Proxy] Google responded:', error.response.status);
         res.status(error.response.status);
-        if (error.response.headers?.['content-type']) res.setHeader('Content-Type', error.response.headers['content-type']);
+        if (error.response.headers?.['content-type']) res.setHeader('Content-Type', String(error.response.headers['content-type']));
         error.response.data.pipe(res);
       } else {
         res.status(500).json({ error: 'AI proxy failed', details: error.message });
       }
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────
+  // AI DIAGNOSTIC — GET /api/test-ai
+  // Verifies Gemini connection server-side without going through the proxy
+  // ─────────────────────────────────────────────────────────────────────
+  app.get('/api/test-ai', async (req, res) => {
+    const GEMINI_KEY = process.env.GEMINI_API_KEY;
+    if (!GEMINI_KEY) {
+      return res.json({ ok: false, error: 'GEMINI_API_KEY not set on server' });
+    }
+    try {
+      const result = await axios.post(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`,
+        { contents: [{ role: 'user', parts: [{ text: 'Say "OK" in one word.' }] }] },
+        { headers: { 'Content-Type': 'application/json' }, timeout: 15_000 }
+      );
+      const text = result.data?.candidates?.[0]?.content?.parts?.[0]?.text || '(empty)';
+      res.json({ ok: true, response: text, model: 'gemini-2.0-flash' });
+    } catch (e: any) {
+      const detail = e.response?.data || e.message;
+      res.json({ ok: false, error: String(detail) });
     }
   });
 

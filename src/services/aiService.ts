@@ -1,152 +1,167 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { Type } from "@google/genai";
 
-let genAI: any = null;
-const TEXT_MODEL = "gemini-2.5-flash";
-const IMAGE_MODEL = "gemini-2.0-flash-exp";
+const TEXT_MODEL = "gemini-2.0-flash";
 
-function getGenAI() {
-  if (!genAI) {
-    const isBrowser = typeof window !== 'undefined';
-    if (isBrowser) {
-      // Always use server proxy in browser:
-      // – bypasses Russian ISP blocks (requests go browser → our server → Google)
-      // – keeps the real API key on the server, not in the JS bundle
-      genAI = new GoogleGenAI({
-        apiKey: 'proxy',
-        httpOptions: { baseUrl: window.location.origin + '/api/ai-proxy' }
-      });
-    } else {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) throw new Error("GEMINI_API_KEY is not set on server.");
-      genAI = new GoogleGenAI({ apiKey });
-    }
+// In the browser all requests go through our server proxy → Google Gemini.
+// This bypasses Russian ISP blocks and keeps the real API key on the server.
+// On the server (SSR/build) we talk to Google directly.
+function proxyBase(): string {
+  if (typeof window !== 'undefined') {
+    return window.location.origin + '/api/ai-proxy';
   }
-  return genAI;
+  return 'https://generativelanguage.googleapis.com';
+}
+
+function apiKey(): string {
+  if (typeof window !== 'undefined') return 'placeholder'; // server replaces it
+  return process.env.GEMINI_API_KEY || '';
 }
 
 function cleanContext(context: string): string {
   return context.replace(/data:image\/[^;]+;base64,[^"'\s)]+/g, '[IMAGE_REMOVED]');
 }
 
-// Trim AI response to max 3 short paragraphs (~200 words)
 function trimResponse(text: string): string {
   if (!text) return text;
   const paragraphs = text.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
   return paragraphs.slice(0, 3).join('\n\n');
 }
 
-const BREVITY_RULE = `
-ВАЖНО: Отвечай СТРОГО в пределах 2-3 абзацев, не более 150 слов. Никакой воды и длинных списков. Краткость — приоритет.`;
+const BREVITY_RULE = `\nВАЖНО: Отвечай СТРОГО в пределах 2-3 абзацев, не более 150 слов. Краткость — приоритет.`;
 
+// ─── Core fetch helper ────────────────────────────────────────────────────────
+async function geminiPost(modelPath: string, body: object): Promise<any> {
+  const base = proxyBase();
+  const key = apiKey();
+  const url = `${base}/v1beta/models/${modelPath}?key=${key}`;
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-goog-api-key': key,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Gemini ${resp.status}: ${text.slice(0, 400)}`);
+  }
+  return resp.json();
+}
+
+async function generateContent(prompt: string, opts: {
+  system?: string;
+  maxTokens?: number;
+  temp?: number;
+  mimeType?: string;
+  schema?: any;
+  parts?: any[];
+}): Promise<string> {
+  const contents = opts.parts
+    ? [{ role: 'user', parts: opts.parts }]
+    : [{ role: 'user', parts: [{ text: prompt }] }];
+
+  const body: any = { contents };
+  if (opts.system) body.systemInstruction = { parts: [{ text: opts.system }] };
+  body.generationConfig = {
+    maxOutputTokens: opts.maxTokens ?? 500,
+    temperature: opts.temp ?? 0.7,
+  };
+  if (opts.mimeType) body.generationConfig.responseMimeType = opts.mimeType;
+  if (opts.schema) body.generationConfig.responseSchema = opts.schema;
+
+  const data = await geminiPost(`${TEXT_MODEL}:generateContent`, body);
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+}
+
+async function chatSend(message: string, history: any[], systemInstruction: string, maxTokens = 350): Promise<string> {
+  // Build contents array: system + history + new message
+  const contents: any[] = [];
+
+  // Map SDK history format to Gemini API format
+  for (const msg of history) {
+    const role = msg.role === 'user' ? 'user' : 'model';
+    const text = Array.isArray(msg.parts) ? (msg.parts[0]?.text ?? '') : String(msg.parts ?? '');
+    if (text) contents.push({ role, parts: [{ text }] });
+  }
+  contents.push({ role: 'user', parts: [{ text: message }] });
+
+  const body: any = {
+    contents,
+    systemInstruction: { parts: [{ text: systemInstruction }] },
+    generationConfig: { maxOutputTokens: maxTokens, temperature: 0.7 },
+  };
+
+  const data = await geminiPost(`${TEXT_MODEL}:generateContent`, body);
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+}
+
+// ─── Public API ───────────────────────────────────────────────────────────────
 export const aiService = {
   async trainingTutor(message: string, courseContext: string, history: any[] = [], customPrompt?: string) {
-    const ai = getGenAI();
     const cleanCont = cleanContext(courseContext);
-    const systemInstruction = (customPrompt || `Ты — Эксперт-наставник iBOX Academy.
-    Твоя задача: проводить реалистичные симуляции и тренировки сотрудников.
+    const system = (customPrompt || `Ты — Эксперт-наставник iBOX Academy.
+Твоя задача: проводить реалистичные симуляции и тренировки сотрудников.
 
-    ПРАВИЛА ТРЕНИРОВКИ:
-    1. ИСПОЛЬЗУЙ ТОЛЬКО ЗНАНИЯ ИЗ ПРЕДОСТАВЛЕННОГО КОНТЕКСТА.
-    2. Не используй общие знания о мире — только материалы курса.
-    3. Создавай одну конкретную рабочую ситуацию за раз.
-    4. Если ученик ошибается — указывай на ошибку кратко и жди исправления.
-    5. В конце успешной тренировки обязательно напиши слово: SUCCESS.
-    6. Не пиши SUCCESS, пока ответ не будет правильным.`)
-    + BREVITY_RULE
-    + `\n\nКОНТЕКСТ КУРСА:\n${cleanCont}`;
+ПРАВИЛА ТРЕНИРОВКИ:
+1. ИСПОЛЬЗУЙ ТОЛЬКО ЗНАНИЯ ИЗ ПРЕДОСТАВЛЕННОГО КОНТЕКСТА.
+2. Не используй общие знания о мире — только материалы курса.
+3. Создавай одну конкретную рабочую ситуацию за раз.
+4. Если ученик ошибается — указывай на ошибку кратко и жди исправления.
+5. В конце успешной тренировки обязательно напиши слово: SUCCESS.
+6. Не пиши SUCCESS, пока ответ не будет правильным.`)
+      + BREVITY_RULE
+      + `\n\nКОНТЕКСТ КУРСА:\n${cleanCont}`;
 
-    const chat = ai.chats.create({
-      model: TEXT_MODEL,
-      config: {
-        systemInstruction,
-        maxOutputTokens: 350,
-        temperature: 0.7
-      },
-      history: history.length > 0 ? history : []
-    });
-
-    const result = await chat.sendMessage(message);
-    return trimResponse(result.text);
+    const text = await chatSend(message, history, system, 350);
+    return trimResponse(text);
   },
 
   async smartAssistant(question: string, context: string, history: any[] = [], customPrompt?: string) {
-    const ai = getGenAI();
     const cleanCont = cleanContext(context);
-    const systemInstruction = (customPrompt || `Ты — Smart Assistant Академии iBOX. Отвечай только по базе знаний ниже.
+    const system = (customPrompt || `Ты — Smart Assistant Академии iBOX. Отвечай только по базе знаний ниже.
 
-    ПРАВИЛА:
-    1. Отвечай строго по предоставленным материалам.
-    2. Если ответа нет — скажи: "Информации по этому вопросу нет в материалах Академии."
-    3. Не отвечай на вопросы, не связанные с обучением iBOX.
-    4. Используй Markdown для оформления.`)
-    + BREVITY_RULE
-    + `\n\nБАЗА ЗНАНИЙ:\n${cleanCont}`;
+ПРАВИЛА:
+1. Отвечай строго по предоставленным материалам.
+2. Если ответа нет — скажи: "Информации по этому вопросу нет в материалах Академии."
+3. Не отвечай на вопросы, не связанные с обучением iBOX.
+4. Используй Markdown для оформления.`)
+      + BREVITY_RULE
+      + `\n\nБАЗА ЗНАНИЙ:\n${cleanCont}`;
 
-    const chat = ai.chats.create({
-      model: TEXT_MODEL,
-      config: {
-        systemInstruction,
-        maxOutputTokens: 350,
-        temperature: 0.5
-      },
-      history: history.length > 0 ? history : []
-    });
-
-    const result = await chat.sendMessage(question);
-    return trimResponse(result.text);
+    const text = await chatSend(question, history, system, 350);
+    return trimResponse(text);
   },
 
-  async generateImage(prompt: string) {
-    const ai = getGenAI();
-    try {
-      const response = await ai.models.generateContent({
-        model: IMAGE_MODEL,
-        contents: prompt,
-        config: {
-          responseModalities: ['Text', 'Image']
-        }
-      });
-
-      for (const part of response.candidates?.[0]?.content?.parts || []) {
-        if (part.inlineData) {
-          return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-        }
-      }
-      return null;
-    } catch (e) {
-      console.error("Image generation failed", e);
-      return null;
-    }
+  async generateImage(_prompt: string) {
+    // Image generation via Gemini is not stable enough for production — return null
+    console.warn('Image generation skipped (not supported in proxy mode)');
+    return null;
   },
 
   async generateGlossaryDraft(term: string, courseContext: string) {
-    const ai = getGenAI();
     try {
       const cleanCont = cleanContext(courseContext);
-      const response = await ai.models.generateContent({
-        model: TEXT_MODEL,
-        contents: `На основе материала: ${cleanCont.substring(0, 3000)}, напиши краткое (1 предложение) определение термина "${term}". Только текст определения без форматирования.`,
-      });
-      return response.text;
+      return await generateContent(
+        `На основе материала: ${cleanCont.substring(0, 3000)}, напиши краткое (1 предложение) определение термина "${term}". Только текст определения без форматирования.`,
+        {}
+      );
     } catch (e) {
-      console.error("Glossary draft failed", e);
+      console.error('Glossary draft failed', e);
       return null;
     }
   },
 
   async askTutor(question: string, context: string, systemPrompt?: string) {
-    const ai = getGenAI();
     const cleanCont = cleanContext(context);
-    const response = await ai.models.generateContent({
-      model: TEXT_MODEL,
-      contents: question,
-      config: {
-        systemInstruction: (systemPrompt || "Ты — помощник Академии iBOX. Отвечай кратко, 2-3 абзаца максимум. Используй Markdown.")
-          + `\n\nCONTEXT: ${cleanCont}`,
-        maxOutputTokens: 350
-      }
+    const text = await generateContent(question, {
+      system: (systemPrompt || 'Ты — помощник Академии iBOX. Отвечай кратко, 2-3 абзаца максимум. Используй Markdown.')
+        + `\n\nCONTEXT: ${cleanCont}`,
+      maxTokens: 350,
     });
-    return trimResponse(response.text);
+    return trimResponse(text);
   },
 
   async generateCourseFromTopic(topic: string) {
@@ -158,168 +173,117 @@ export const aiService = {
   },
 
   async generateCourseContent(prompt: string) {
-    const ai = getGenAI();
-    const response = await ai.models.generateContent({
-      model: TEXT_MODEL,
-      contents: `ТЫ — МЕТОДОЛОГ iBOX. Создай обучающий курс.
-
-      ЗАПРОС: ${prompt}
-
-      ТРЕБОВАНИЯ:
-      1. 3-5 уроков с подробным контентом (минимум 200 слов на урок).
-      2. Структура с заголовками, списками.
-      3. Практические алгоритмы и речевые модули.
-      4. Тест: минимум 5 вопросов с 4 вариантами ответов.
-
-      Формат: JSON строго по схеме.`,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          required: ["title", "description", "category", "lessons", "testConfig"],
+    const schema = {
+      type: "OBJECT",
+      required: ["title", "description", "category", "lessons", "testConfig"],
+      properties: {
+        title: { type: "STRING" },
+        description: { type: "STRING" },
+        category: { type: "STRING" },
+        lessons: {
+          type: "ARRAY",
+          items: {
+            type: "OBJECT",
+            required: ["id", "title", "content"],
+            properties: {
+              id: { type: "STRING" },
+              title: { type: "STRING" },
+              content: { type: "STRING" }
+            }
+          }
+        },
+        testConfig: {
+          type: "OBJECT",
+          required: ["type", "questions"],
           properties: {
-            title: { type: Type.STRING },
-            description: { type: Type.STRING },
-            category: { type: Type.STRING },
-            lessons: {
-              type: Type.ARRAY,
+            type: { type: "STRING" },
+            questions: {
+              type: "ARRAY",
               items: {
-                type: Type.OBJECT,
-                required: ["id", "title", "content"],
+                type: "OBJECT",
+                required: ["question", "options", "correctAnswer"],
                 properties: {
-                  id: { type: Type.STRING },
-                  title: { type: Type.STRING },
-                  content: { type: Type.STRING }
-                }
-              }
-            },
-            testConfig: {
-              type: Type.OBJECT,
-              required: ["type", "questions"],
-              properties: {
-                type: { type: Type.STRING },
-                questions: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    required: ["question", "options", "correctAnswer"],
-                    properties: {
-                      question: { type: Type.STRING },
-                      options: { type: Type.ARRAY, items: { type: Type.STRING } },
-                      correctAnswer: { type: Type.INTEGER }
-                    }
-                  }
+                  question: { type: "STRING" },
+                  options: { type: "ARRAY", items: { type: "STRING" } },
+                  correctAnswer: { type: "INTEGER" }
                 }
               }
             }
           }
         }
       }
-    });
+    };
 
-    return JSON.parse(response.text.trim());
+    const text = await generateContent(
+      `ТЫ — МЕТОДОЛОГ iBOX. Создай обучающий курс.\n\nЗАПРОС: ${prompt}\n\nТРЕБОВАНИЯ:\n1. 3-5 уроков с подробным контентом (минимум 200 слов на урок).\n2. Структура с заголовками, списками.\n3. Практические алгоритмы и речевые модули.\n4. Тест: минимум 5 вопросов с 4 вариантами ответов.\n\nФормат: JSON строго по схеме.`,
+      { mimeType: 'application/json', schema, maxTokens: 4096, temp: 0.5 }
+    );
+    return JSON.parse(text.trim());
   },
 
   async extractContentFromMedia(base64: string, mimeType: string) {
-    const ai = getGenAI();
     try {
       let normalizedMimeType = mimeType;
-      if (!mimeType || mimeType === 'application/octet-stream') {
-        normalizedMimeType = 'application/pdf';
-      }
+      if (!mimeType || mimeType === 'application/octet-stream') normalizedMimeType = 'application/pdf';
 
       const isVideo = normalizedMimeType.includes('video');
       const isPdf = normalizedMimeType.includes('pdf');
       const isImage = normalizedMimeType.includes('image');
       const fileLabel = isVideo ? 'ВИДЕО' : isPdf ? 'PDF' : isImage ? 'ИЗОБРАЖЕНИЕ' : 'ФАЙЛ';
 
-      const response = await ai.models.generateContent({
-        model: TEXT_MODEL,
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              {
-                text: `ИЗВЛЕКИ все факты, регламенты, цифры и скрипты из этого ${fileLabel} дословно. Не добавляй ничего от себя. Структурированный текст только из файла.`
-              },
-              { inlineData: { data: base64, mimeType: normalizedMimeType } }
-            ]
-          }
-        ]
+      return await generateContent('', {
+        parts: [
+          { text: `ИЗВЛЕКИ все факты, регламенты, цифры и скрипты из этого ${fileLabel} дословно. Не добавляй ничего от себя. Структурированный текст только из файла.` },
+          { inlineData: { data: base64, mimeType: normalizedMimeType } }
+        ],
+        maxTokens: 8192,
       });
-
-      return response.text;
     } catch (e) {
-      console.error("Knowledge extraction failed", e);
+      console.error('Knowledge extraction failed', e);
       return null;
     }
   },
 
   async evaluateSimulatorSession(chatHistory: any[], courseContext: string) {
-    const ai = getGenAI();
     const historyText = chatHistory
       .map(m => `${m.role}: ${Array.isArray(m.parts) ? m.parts[0]?.text : m.parts}`)
       .join('\n');
     const cleanCont = cleanContext(courseContext);
 
-    const response = await ai.models.generateContent({
-      model: TEXT_MODEL,
-      contents: `Оцени диалог сотрудника в тренажере iBOX Academy. Будь строгим.
-
-      КРИТЕРИИ (сумма 100 баллов):
-      1. Точность знания регламентов (0-50).
-      2. Умение решать возражения без выдумок (0-30).
-      3. Профессионализм (0-20).
-
-      КОНТЕКСТ КУРСА: ${cleanCont.substring(0, 3000)}
-
-      ДИАЛОГ:
-      ${historyText}
-
-      Верни JSON: feedback (1 предложение на русском) и score (0-100).`,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          required: ["feedback", "score"],
-          properties: {
-            feedback: { type: Type.STRING },
-            score: { type: Type.INTEGER }
-          }
-        }
+    const schema = {
+      type: "OBJECT",
+      required: ["feedback", "score"],
+      properties: {
+        feedback: { type: "STRING" },
+        score: { type: "INTEGER" }
       }
-    });
+    };
 
-    return JSON.parse(response.text.trim());
+    const text = await generateContent(
+      `Оцени диалог сотрудника в тренажере iBOX Academy. Будь строгим.\n\nКРИТЕРИИ (сумма 100 баллов):\n1. Точность знания регламентов (0-50).\n2. Умение решать возражения без выдумок (0-30).\n3. Профессионализм (0-20).\n\nКОНТЕКСТ КУРСА: ${cleanCont.substring(0, 3000)}\n\nДИАЛОГ:\n${historyText}\n\nВерни JSON: feedback (1 предложение на русском) и score (0-100).`,
+      { mimeType: 'application/json', schema }
+    );
+    return JSON.parse(text.trim());
   },
 
   async generateGlossaryTermFromContent(content: string) {
-    const ai = getGenAI();
     try {
-      const response = await ai.models.generateContent({
-        model: TEXT_MODEL,
-        contents: `Из этого учебного материала выдели ОДИН важный термин или аббревиатуру.
-
-        МАТЕРИАЛ:
-        ${content.substring(0, 5000)}
-
-        Верни JSON: term, definition (1-2 предложения), category (Продукты/Продажи/Софт/Регламенты).`,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            required: ["term", "definition", "category"],
-            properties: {
-              term: { type: Type.STRING },
-              definition: { type: Type.STRING },
-              category: { type: Type.STRING }
-            }
-          }
+      const schema = {
+        type: "OBJECT",
+        required: ["term", "definition", "category"],
+        properties: {
+          term: { type: "STRING" },
+          definition: { type: "STRING" },
+          category: { type: "STRING" }
         }
-      });
-      return JSON.parse(response.text.trim());
+      };
+      const text = await generateContent(
+        `Из этого учебного материала выдели ОДИН важный термин или аббревиатуру.\n\nМАТЕРИАЛ:\n${content.substring(0, 5000)}\n\nВерни JSON: term, definition (1-2 предложения), category (Продукты/Продажи/Софт/Регламенты).`,
+        { mimeType: 'application/json', schema }
+      );
+      return JSON.parse(text.trim());
     } catch (e) {
-      console.error("AI Glossary generation failed", e);
+      console.error('AI Glossary generation failed', e);
       return null;
     }
   }
