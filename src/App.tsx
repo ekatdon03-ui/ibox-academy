@@ -84,10 +84,11 @@ export default function App() {
         setGlossary(allGlossary);
       } catch (e) { /* will retry after auth */ }
 
-      // In Bitrix24 iframe, Google popup is blocked → auto sign in anonymously
+      // In Bitrix24 iframe, Google popup is blocked → wait for BX24 SDK, then sign in anonymously
+      // bitrixService.init() polls for window.BX24 up to 5 seconds before giving up
+      await bitrixService.init();
       if (bitrixService.isAvailable()) {
         try {
-          await bitrixService.init();
           if (!auth.currentUser) {
             await signInAnonymously(auth);
           }
