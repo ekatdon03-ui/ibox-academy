@@ -1,0 +1,113 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Deny everything by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      // Hard-coded superadmin email
+      let isDev = isSignedIn() && request.auth.token.email == 'oap.ibox.company@gmail.com';
+      // Role from DB
+      let isRoleAdmin = isSignedIn()
+        && exists(/databases/$(database)/documents/roles/$(request.auth.uid))
+        && get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.role == 'admin';
+      return isDev || isRoleAdmin;
+    }
+
+    function isManager() {
+      let isRoleManager = isSignedIn()
+        && exists(/databases/$(database)/documents/roles/$(request.auth.uid))
+        && get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.role == 'manager';
+      return isAdmin() || isRoleManager;
+    }
+
+    // ── COURSES ──────────────────────────────────────────────────────────
+    match /courses/{courseId} {
+      allow read: if isSignedIn() && (
+        isAdmin() ||
+        // Not explicitly hidden
+        !(resource.data.get('hiddenFromUsers', false) == true) && (
+          // Public to all
+          resource.data.get('isPublic', false) == true ||
+          // Assigned to this user
+          (resource.data.get('assignedToUsers', []) is list &&
+           request.auth.uid in resource.data.get('assignedToUsers', []))
+        )
+      );
+      allow write: if isAdmin();
+    }
+
+    // ── USERS ─────────────────────────────────────────────────────────────
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isManager();
+      allow create: if isOwner(userId) || isAdmin();
+      allow update: if isAdmin() ||
+        (isOwner(userId) && request.resource.data.diff(resource.data)
+          .affectedKeys().hasOnly(['name','email','position','department','score','assignedCourses']));
+    }
+
+    // ── NOTIFICATIONS ─────────────────────────────────────────────────────
+    match /notifications/{notificationId} {
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get:  if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn();
+      allow update: if isSignedIn()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    }
+
+    // ── RESULTS ───────────────────────────────────────────────────────────
+    match /results/{resultId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    // ── GLOSSARY ──────────────────────────────────────────────────────────
+    match /glossary/{termId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // ── SETTINGS ──────────────────────────────────────────────────────────
+    match /settings/{settingId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // ── ROLES ─────────────────────────────────────────────────────────────
+    match /roles/{userId} {
+      // Roles must be readable for client-side role resolution
+      allow read: if true;
+      // Owner can create their own role doc if it doesn't exist yet (first sign-in)
+      // After that only admin can change it
+      allow write: if isAdmin() ||
+        (isOwner(userId) && !exists(/databases/$(database)/documents/roles/$(userId)));
+    }
+
+    // ── SIMULATOR SESSIONS ────────────────────────────────────────────────
+    match /simulator_sessions/{sessionId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    // ── PROGRESS ──────────────────────────────────────────────────────────
+    match /progress/{progressId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow write: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+    }
+  }
+}

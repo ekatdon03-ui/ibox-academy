@@ -1,0 +1,88 @@
+{
+  "entities": {
+    "Course": {
+      "title": "Учебный курс",
+      "description": "Описание курса и его уроков",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "type": { "type": "string", "enum": ["presentation", "video", "scorm"] },
+        "fileUrl": { "type": "string" },
+        "thumbnail": { "type": "string" },
+        "lessons": { "type": "array" },
+        "testConfig": { "type": "object" },
+        "hiddenFromUsers": { "type": "boolean" },
+        "assignedToUsers": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "category", "type"]
+    },
+    "UserProfile": {
+      "title": "Профиль пользователя",
+      "description": "Данные сотрудника",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "position": { "type": "string" },
+        "department": { "type": "string" },
+        "role": { "type": "string" },
+        "score": { "type": "number" },
+        "assignedCourses": { "type": "array" }
+      }
+    },
+    "Notification": {
+      "title": "Уведомление",
+      "description": "Системное сообщение для пользователя",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "text": { "type": "string" },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "AISettings": {
+      "title": "Настройки ИИ",
+      "description": "Системные промпты для моделей",
+      "type": "object",
+      "properties": {
+        "tutorPrompt": { "type": "string" },
+        "assistantPrompt": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "/courses/{courseId}": {
+      "schema": "Course",
+      "description": "Список всех учебных курсов"
+    },
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Профили сотрудников"
+    },
+    "/notifications/{notifId}": {
+      "schema": "Notification",
+      "description": "Уведомления пользователей"
+    },
+    "/settings/ai_prompts": {
+      "schema": "AISettings",
+      "description": "Хранилище системных промптов"
+    },
+    "/roles/{userId}": {
+      "schema": "object",
+      "description": "Системные роли (admin, manager, employee)"
+    },
+    "/results/{resultId}": {
+      "schema": "object",
+      "description": "Результаты прохождения тестов"
+    },
+    "/simulator_sessions/{sessionId}": {
+      "schema": "object",
+      "description": "История диалогов в тренажере"
+    }
+  }
+}

@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: ibox-academy
+    runtime: node
+    plan: free
+    region: frankfurt  # Европа — ближе к РФ, меньше задержек
+    buildCommand: npm install && npm run build
+    startCommand: node dist/server.cjs
+    healthCheckPath: /api/bitrix-webhook
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: GEMINI_API_KEY
+        sync: false   # Укажи вручную в Render Dashboard → Environment
