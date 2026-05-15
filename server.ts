@@ -102,15 +102,25 @@ async function startServer() {
     }
     try {
       const proxyPath = req.path.replace('/api/ai-proxy', '') || '/';
-      const searchParams = new URLSearchParams(req.query as Record<string, string>);
-      searchParams.set('key', GEMINI_KEY);
-      const targetUrl = `https://generativelanguage.googleapis.com${proxyPath}?${searchParams}`;
+      // Rebuild query string without the placeholder 'proxy' key
+      const searchParams = new URLSearchParams();
+      for (const [k, v] of Object.entries(req.query)) {
+        if (k !== 'key') searchParams.append(k, String(v));
+      }
+      const qs = searchParams.toString();
+      const targetUrl = `https://generativelanguage.googleapis.com${proxyPath}${qs ? '?' + qs : ''}`;
 
+      // Forward request with the real API key in both header and query param
+      // (SDK sends x-goog-api-key header; Google also accepts ?key= param)
       const response = await axios({
         method: req.method as any,
         url: targetUrl,
         data: ['POST', 'PUT', 'PATCH'].includes(req.method) ? req.body : undefined,
-        headers: { 'Content-Type': req.headers['content-type'] || 'application/json' },
+        headers: {
+          'Content-Type': req.headers['content-type'] || 'application/json',
+          'x-goog-api-key': GEMINI_KEY,
+        },
+        params: { key: GEMINI_KEY },
         responseType: 'stream',
         timeout: 180_000
       });
