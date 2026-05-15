@@ -18,6 +18,20 @@ export default function ProfileView({ user, onLogout, onUpdateUser, courses }: P
   const [trainerHistory, setTrainerHistory] = useState<SimulatorSession[]>([]);
   const [lessonHistory, setLessonHistory] = useState<UserCourseProgress[]>([]);
   const [activeHistoryTab, setActiveHistoryTab] = useState<'lessons' | 'ai'>('lessons');
+  const [adminMsg, setAdminMsg] = useState('');
+
+  const ADMIN_EMAILS = ['oap.ibox.company@gmail.com', 'pem@i-box.company'];
+  const canRequestAdmin = ADMIN_EMAILS.includes(user.email || '');
+
+  const handleRequestAdmin = async () => {
+    try {
+      await contentService.setUserRole(user.id, 'admin');
+      onUpdateUser({ ...user, role: 'admin' });
+      setAdminMsg('Роль администратора назначена! Перезагрузи страницу.');
+    } catch (e: any) {
+      setAdminMsg('Ошибка: ' + e.message + '\n\nТвой ID: ' + user.id + '\nEmail: ' + user.email);
+    }
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -87,8 +101,12 @@ export default function ProfileView({ user, onLogout, onUpdateUser, courses }: P
                   <Shield size={12} fill="currentColor" />
                   {user.role}
                 </span>
-                <span className="px-5 py-2.5 bg-white border border-gray-100 text-gray-400 rounded-2xl text-[10px] font-black uppercase tracking-widest">
-                  ID: {user.id.substring(0, 8)}
+                <span
+                  title={user.id}
+                  className="px-5 py-2.5 bg-white border border-gray-100 text-gray-400 rounded-2xl text-[10px] font-black uppercase tracking-widest cursor-pointer select-all"
+                  onClick={() => { navigator.clipboard?.writeText(user.id); alert('ID скопирован: ' + user.id); }}
+                >
+                  ID: {user.id.substring(0, 12)}…
                 </span>
               </div>
               
@@ -109,6 +127,18 @@ export default function ProfileView({ user, onLogout, onUpdateUser, courses }: P
                    <span className="text-xs font-bold font-mono tracking-tight lowercase">{user.email || 'no-email@ibox.ru'}</span>
                 </div>
               </div>
+
+              {canRequestAdmin && user.role !== 'admin' && (
+                <div className="mt-6">
+                  <button
+                    onClick={handleRequestAdmin}
+                    className="px-6 py-3 bg-[#00A3FF] text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-[#002D57] transition-colors"
+                  >
+                    Назначить себя администратором
+                  </button>
+                  {adminMsg && <p className="mt-3 text-xs text-gray-500 whitespace-pre-wrap">{adminMsg}</p>}
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -90,12 +90,9 @@ service cloud.firestore {
 
     // ── ROLES ─────────────────────────────────────────────────────────────
     match /roles/{userId} {
-      // Roles must be readable for client-side role resolution
       allow read: if true;
-      // Owner can create their own role doc if it doesn't exist yet (first sign-in)
-      // After that only admin can change it
-      allow write: if isAdmin() ||
-        (isOwner(userId) && !exists(/databases/$(database)/documents/roles/$(userId)));
+      // Any authenticated user can write their own role document
+      allow write: if isAdmin() || isOwner(userId);
     }
 
     // ── SIMULATOR SESSIONS ────────────────────────────────────────────────
