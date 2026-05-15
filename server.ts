@@ -103,19 +103,36 @@ async function startServer() {
     if (!admin) {
       return res.json({ ok: false, error: 'Firebase Admin SDK not configured (FIREBASE_SERVICE_ACCOUNT_BASE64 missing)' });
     }
-    const results: any[] = [];
     const db = admin.firestore();
+    const results: any[] = [];
+
+    // Search Firestore users collection by email (works for Bitrix users too)
     for (const email of ADMIN_EMAILS) {
       try {
-        const userRecord = await admin.auth().getUserByEmail(email);
-        await db.collection('roles').doc(userRecord.uid).set({ role: 'admin' }, { merge: true });
-        await db.collection('users').doc(userRecord.uid).set({ role: 'admin' }, { merge: true });
-        results.push({ email, uid: userRecord.uid, ok: true });
+        const snap = await db.collection('users').where('email', '==', email).get();
+        if (snap.empty) {
+          results.push({ email, ok: false, error: 'No Firestore user with this email — user has not logged in yet' });
+          continue;
+        }
+        for (const docSnap of snap.docs) {
+          const uid = docSnap.id;
+          await db.collection('roles').doc(uid).set({ role: 'admin' }, { merge: true });
+          await db.collection('users').doc(uid).set({ role: 'admin' }, { merge: true });
+          results.push({ email, uid, ok: true });
+        }
       } catch (e: any) {
         results.push({ email, ok: false, error: e.message });
       }
     }
-    res.json({ ok: true, results });
+
+    // Also list all users so we can see who is in the DB
+    try {
+      const allUsers = await db.collection('users').limit(20).get();
+      const userList = allUsers.docs.map(d => ({ id: d.id, email: d.data().email, name: d.data().name, role: d.data().role }));
+      res.json({ ok: true, results, allUsers: userList });
+    } catch (_) {
+      res.json({ ok: true, results });
+    }
   });
 
   // ─────────────────────────────────────────────────────────────────────
