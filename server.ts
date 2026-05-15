@@ -165,8 +165,16 @@ async function startServer() {
       const text = result.data?.candidates?.[0]?.content?.parts?.[0]?.text || '(empty)';
       res.json({ ok: true, response: text, model: 'gemini-2.0-flash' });
     } catch (e: any) {
-      const detail = e.response?.data || e.message;
-      res.json({ ok: false, error: String(detail) });
+      const status = e.response?.status;
+      const data = e.response?.data;
+      res.json({
+        ok: false,
+        status,
+        error: e.message,
+        googleError: typeof data === 'object' ? JSON.stringify(data) : data,
+        keyPresent: !!GEMINI_KEY,
+        keyPrefix: GEMINI_KEY ? GEMINI_KEY.slice(0, 8) + '...' : null,
+      });
     }
   });
 
