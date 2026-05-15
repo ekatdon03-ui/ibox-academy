@@ -14,7 +14,7 @@ import { bitrixService } from './services/bitrixService';
 import { UserProfile, Course, CourseResult, GlossaryTerm } from './types';
 import { contentService } from './services/contentService';
 import { auth } from './lib/firebase';
-import { signInAnonymously } from 'firebase/auth';
+import { signInAnonymously, signInWithCustomToken } from 'firebase/auth';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('training');
@@ -84,16 +84,32 @@ export default function App() {
         setGlossary(allGlossary);
       } catch (e) { /* will retry after auth */ }
 
-      // In Bitrix24 iframe, Google popup is blocked → wait for BX24 SDK, then sign in anonymously
-      // bitrixService.init() polls for window.BX24 up to 5 seconds before giving up
+      // In Bitrix24 iframe — wait for BX24 SDK, then auto-login via our /api/bitrix-auth endpoint
       await bitrixService.init();
-      if (bitrixService.isAvailable()) {
+      if (bitrixService.isAvailable() && !auth.currentUser) {
         try {
-          if (!auth.currentUser) {
+          const BX24 = (window as any).BX24;
+          const bxAuth = BX24.getAuth();
+          const domain = bxAuth.domain || window.location.hostname;
+
+          const resp = await fetch('/api/bitrix-auth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bitrixDomain: domain, accessToken: bxAuth.access_token })
+          });
+
+          if (resp.ok) {
+            const { customToken } = await resp.json();
+            await signInWithCustomToken(auth, customToken);
+            // onAuthStateChanged fires next and loads the full profile
+          } else {
+            // Fallback: anonymous auth if server isn't configured yet
+            console.warn('Bitrix auth endpoint failed, falling back to anonymous');
             await signInAnonymously(auth);
           }
         } catch (e) {
-          console.warn("Bitrix anonymous sign-in failed:", e);
+          console.warn("Bitrix sign-in failed:", e);
+          await signInAnonymously(auth).catch(() => {});
         }
       }
 

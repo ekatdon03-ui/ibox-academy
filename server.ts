@@ -4,6 +4,29 @@ import cors from 'cors';
 import axios from 'axios';
 import { createServer as createViteServer } from 'vite';
 
+// Firebase Admin — for generating custom tokens (Bitrix auth)
+let firebaseAdmin: any = null;
+function getAdmin() {
+  if (firebaseAdmin) return firebaseAdmin;
+  try {
+    const adminModule = require('firebase-admin');
+    const b64 = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
+    if (!b64) {
+      console.warn('⚠️  FIREBASE_SERVICE_ACCOUNT_BASE64 not set — Bitrix auto-login disabled');
+      return null;
+    }
+    const serviceAccount = JSON.parse(Buffer.from(b64, 'base64').toString('utf-8'));
+    if (!adminModule.apps.length) {
+      adminModule.initializeApp({ credential: adminModule.credential.cert(serviceAccount) });
+    }
+    firebaseAdmin = adminModule;
+    return firebaseAdmin;
+  } catch (e: any) {
+    console.error('Firebase Admin init failed:', e.message);
+    return null;
+  }
+}
+
 async function startServer() {
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
@@ -12,74 +35,115 @@ async function startServer() {
   app.use(express.json({ limit: '50mb' }));
 
   // ─────────────────────────────────────────────────────────────────────
+  // BITRIX24 AUTO-LOGIN
+  // 1. Client sends Bitrix access_token + domain
+  // 2. We verify it against the Bitrix REST API
+  // 3. We return a Firebase Custom Token with UID = "bitrix_{id}"
+  //    so every Bitrix user gets a stable, persistent Firebase identity
+  // ─────────────────────────────────────────────────────────────────────
+  app.post('/api/bitrix-auth', async (req, res) => {
+    const { bitrixDomain, accessToken } = req.body;
+    if (!bitrixDomain || !accessToken) {
+      return res.status(400).json({ error: 'bitrixDomain and accessToken required' });
+    }
+
+    const admin = getAdmin();
+    if (!admin) {
+      return res.status(503).json({ error: 'Firebase Admin not configured on server' });
+    }
+
+    try {
+      // Verify token by calling Bitrix API server-side (no CORS issues here)
+      const domain = bitrixDomain.replace(/^https?:\/\//, '').replace(/\/$/, '');
+      const bxRes = await axios.get(`https://${domain}/rest/user.current`, {
+        params: { auth: accessToken },
+        timeout: 10_000
+      });
+
+      const bxUser = bxRes.data?.result;
+      if (!bxUser?.ID) {
+        return res.status(401).json({ error: 'Invalid Bitrix token' });
+      }
+
+      // Stable Firebase UID tied to this Bitrix user
+      const firebaseUid = `bitrix_${bxUser.ID}`;
+
+      const customToken = await admin.auth().createCustomToken(firebaseUid, {
+        bitrixId: String(bxUser.ID),
+        isAdmin: !!bxUser.IS_ADMIN
+      });
+
+      res.json({
+        customToken,
+        profile: {
+          id: firebaseUid,
+          bitrixId: String(bxUser.ID),
+          name: `${bxUser.NAME || ''} ${bxUser.LAST_NAME || ''}`.trim() || 'Сотрудник',
+          email: bxUser.EMAIL || '',
+          position: bxUser.WORK_POSITION || 'Сотрудник iBOX',
+          avatar: bxUser.PERSONAL_PHOTO || '',
+          isAdmin: !!bxUser.IS_ADMIN,
+          departmentIds: bxUser.UF_DEPARTMENT || []
+        }
+      });
+    } catch (e: any) {
+      console.error('Bitrix auth error:', e.message);
+      res.status(500).json({ error: 'Bitrix auth failed', details: e.message });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────
   // GEMINI API PROXY
-  // Forwards all /api/ai-proxy/* requests to Google Generative Language API.
-  // The real API key lives ONLY here (server env var), never in the browser bundle.
-  // This also bypasses Russian ISP blocks — browser → our server → Google.
   // ─────────────────────────────────────────────────────────────────────
   app.all('/api/ai-proxy*', async (req, res) => {
     const GEMINI_KEY = process.env.GEMINI_API_KEY;
     if (!GEMINI_KEY) {
       return res.status(503).json({ error: 'GEMINI_API_KEY not configured on server' });
     }
-
     try {
-      // req.path = /api/ai-proxy/v1beta/models/... → strip prefix
       const proxyPath = req.path.replace('/api/ai-proxy', '') || '/';
-
-      // Rebuild query string, replacing any dummy "key" param with the real one
       const searchParams = new URLSearchParams(req.query as Record<string, string>);
       searchParams.set('key', GEMINI_KEY);
-
       const targetUrl = `https://generativelanguage.googleapis.com${proxyPath}?${searchParams}`;
 
       const response = await axios({
         method: req.method as any,
         url: targetUrl,
         data: ['POST', 'PUT', 'PATCH'].includes(req.method) ? req.body : undefined,
-        headers: {
-          'Content-Type': req.headers['content-type'] || 'application/json',
-          'x-goog-api-client': 'genai-js/proxy'
-        },
+        headers: { 'Content-Type': req.headers['content-type'] || 'application/json' },
         responseType: 'stream',
         timeout: 180_000
       });
 
       res.status(response.status);
-      const ct = response.headers['content-type'];
-      if (ct) res.setHeader('Content-Type', ct);
-
+      if (response.headers['content-type']) res.setHeader('Content-Type', response.headers['content-type']);
       response.data.pipe(res);
     } catch (error: any) {
       if (error.response) {
         res.status(error.response.status);
-        const ct = error.response.headers?.['content-type'];
-        if (ct) res.setHeader('Content-Type', ct);
+        if (error.response.headers?.['content-type']) res.setHeader('Content-Type', error.response.headers['content-type']);
         error.response.data.pipe(res);
       } else {
-        console.error('AI proxy error:', error.message);
         res.status(500).json({ error: 'AI proxy failed', details: error.message });
       }
     }
   });
 
   // ─────────────────────────────────────────────────────────────────────
-  // PROXY FETCH — for AI media extraction (PDFs from Google Drive, etc.)
+  // PROXY FETCH — for AI media extraction
   // ─────────────────────────────────────────────────────────────────────
   app.post('/api/proxy-fetch', async (req, res) => {
     try {
       let { url } = req.body;
       if (!url) return res.status(400).json({ error: 'URL is required' });
 
-      // Convert Google Drive view links to direct download
       if (url.includes('drive.google.com/file/d/')) {
         const fileId = url.split('/d/')[1].split('/')[0];
         url = `https://drive.google.com/uc?export=download&id=${fileId}`;
       } else if (url.includes('drive.google.com/open?id=')) {
         const fileId = url.split('id=')[1].split('&')[0];
         url = `https://drive.google.com/uc?export=download&id=${fileId}`;
-      }
-      if (url.includes('docs.google.com/presentation/d/')) {
+      } else if (url.includes('docs.google.com/presentation/d/')) {
         const docId = url.split('/d/')[1].split('/')[0];
         url = `https://docs.google.com/presentation/d/${docId}/export/pdf`;
       } else if (url.includes('docs.google.com/document/d/')) {
@@ -89,9 +153,7 @@ async function startServer() {
 
       const response = await axios.get(url, {
         responseType: 'arraybuffer',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; ibox-academy-proxy/1.0)'
-        },
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ibox-academy/1.0)' },
         timeout: 30_000
       });
 
@@ -101,31 +163,19 @@ async function startServer() {
         size: response.data.length
       });
     } catch (error: any) {
-      console.error('Proxy fetch error:', error.message);
       res.status(500).json({ error: 'Failed to fetch external content' });
     }
   });
 
   // ─────────────────────────────────────────────────────────────────────
-  // BITRIX24 HANDLER ENTRY POINT
-  // Bitrix24 POSTs to the handler URL when opening an embedded app.
-  // We respond with the main SPA page so the app loads inside the iframe.
+  // BITRIX24 HANDLER ENTRY POINT (POST /)
   // ─────────────────────────────────────────────────────────────────────
   app.post('/', (req, res) => {
     if (process.env.NODE_ENV === 'production') {
       res.sendFile(path.join(process.cwd(), 'dist', 'index.html'));
     } else {
-      // In dev mode just redirect to GET /
       res.redirect(302, '/');
     }
-  });
-
-  // ─────────────────────────────────────────────────────────────────────
-  // BITRIX24 WEBHOOK RECEIVER
-  // ─────────────────────────────────────────────────────────────────────
-  app.post('/api/bitrix-webhook', (req, res) => {
-    console.log('Bitrix24 Webhook:', JSON.stringify(req.body).substring(0, 200));
-    res.json({ success: true });
   });
 
   // ─────────────────────────────────────────────────────────────────────
@@ -147,9 +197,8 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
-    if (!process.env.GEMINI_API_KEY) {
-      console.warn('⚠️  GEMINI_API_KEY is not set — AI features will not work!');
-    }
+    if (!process.env.GEMINI_API_KEY) console.warn('⚠️  GEMINI_API_KEY not set');
+    if (!process.env.FIREBASE_SERVICE_ACCOUNT_BASE64) console.warn('⚠️  FIREBASE_SERVICE_ACCOUNT_BASE64 not set — Bitrix auto-login disabled');
   });
 }
 
