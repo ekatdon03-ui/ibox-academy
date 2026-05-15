@@ -107,6 +107,20 @@ async function startServer() {
   });
 
   // ─────────────────────────────────────────────────────────────────────
+  // BITRIX24 HANDLER ENTRY POINT
+  // Bitrix24 POSTs to the handler URL when opening an embedded app.
+  // We respond with the main SPA page so the app loads inside the iframe.
+  // ─────────────────────────────────────────────────────────────────────
+  app.post('/', (req, res) => {
+    if (process.env.NODE_ENV === 'production') {
+      res.sendFile(path.join(process.cwd(), 'dist', 'index.html'));
+    } else {
+      // In dev mode just redirect to GET /
+      res.redirect(302, '/');
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────
   // BITRIX24 WEBHOOK RECEIVER
   // ─────────────────────────────────────────────────────────────────────
   app.post('/api/bitrix-webhook', (req, res) => {
