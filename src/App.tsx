@@ -90,7 +90,7 @@ export default function App() {
     try {
       let role = await contentService.resolveUserRole(profile.id, profile.role);
       const updated = { ...profile, role: role as any, email: firebaseUser.email || profile.email || '' };
-      if (updated.email === 'oap.ibox.company@gmail.com') updated.role = 'admin';
+      if (['oap.ibox.company@gmail.com', 'ekat.don.03@gmail.com'].includes(updated.email)) updated.role = 'admin';
       await contentService.syncUserRole(updated.id, updated.role, firebaseUser);
       await contentService.saveProfile(updated, firebaseUser);
       return updated;
