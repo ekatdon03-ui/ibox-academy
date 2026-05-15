@@ -87,27 +87,35 @@ export default function App() {
 
   const syncUserSession = async (profile: UserProfile, firebaseUser: any) => {
     if (!profile.id) return profile;
+
+    const ADMIN_EMAILS = ['oap.ibox.company@gmail.com', 'pem@i-box.company'];
+    const ADMIN_IDS   = ['DxMBjT1L'];
+    const email       = firebaseUser.email || profile.email || '';
+
+    // Resolve DB role (non-critical — don't let Firestore errors break the session)
+    let dbRole: 'admin' | 'manager' | 'employee' = profile.role || 'employee';
     try {
-      let role = await contentService.resolveUserRole(profile.id, profile.role);
-      const updated = { ...profile, role: role as any, email: firebaseUser.email || profile.email || '' };
-      const ADMIN_EMAILS = ['oap.ibox.company@gmail.com', 'pem@i-box.company'];
-      const ADMIN_IDS = ['DxMBjT1L'];
-      if (
-        ADMIN_EMAILS.includes(updated.email) ||
-        ADMIN_IDS.includes(updated.id) ||
-        ADMIN_IDS.includes(updated.bitrixId || '')
-      ) {
-        updated.role = 'admin';
-        // Force-write to Firestore so role persists across logins
-        await contentService.setUserRole(updated.id, 'admin', firebaseUser);
-      }
-      await contentService.syncUserRole(updated.id, updated.role, firebaseUser);
+      dbRole = (await contentService.resolveUserRole(profile.id, profile.role)) as any;
+    } catch (_) {}
+
+    const isHardcodedAdmin =
+      ADMIN_EMAILS.includes(email) ||
+      ADMIN_IDS.includes(profile.id) ||
+      ADMIN_IDS.includes((profile as any).bitrixId || '');
+
+    // Hardcoded admins always get admin role regardless of what's in DB
+    const finalRole: 'admin' | 'manager' | 'employee' = isHardcodedAdmin ? 'admin' : dbRole as any;
+    const updated   = { ...profile, role: finalRole, email };
+
+    // Persist to Firestore — errors are non-critical, session still works
+    try {
+      await contentService.setUserRole(updated.id, updated.role, firebaseUser);
       await contentService.saveProfile(updated, firebaseUser);
-      return updated;
     } catch (e) {
-      console.warn('Session sync failed:', e);
-      return profile;
+      console.warn('Firestore role sync failed (non-critical):', e);
     }
+
+    return updated;
   };
 
   useEffect(() => {

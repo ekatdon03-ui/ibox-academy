@@ -16,9 +16,10 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      // Hard-coded superadmin email
-      let isDev = isSignedIn() && request.auth.token.email == 'oap.ibox.company@gmail.com';
-      // Role from DB
+      let isDev = isSignedIn() && (
+        request.auth.token.email == 'oap.ibox.company@gmail.com' ||
+        request.auth.token.email == 'pem@i-box.company'
+      );
       let isRoleAdmin = isSignedIn()
         && exists(/databases/$(database)/documents/roles/$(request.auth.uid))
         && get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.role == 'admin';

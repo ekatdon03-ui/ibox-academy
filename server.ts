@@ -93,6 +93,32 @@ async function startServer() {
   });
 
   // ─────────────────────────────────────────────────────────────────────
+  // ADMIN BOOTSTRAP — forcefully sets admin role via Firebase Admin SDK
+  // bypassing all Firestore security rules
+  // GET /api/bootstrap-admin?email=pem@i-box.company
+  // ─────────────────────────────────────────────────────────────────────
+  app.get('/api/bootstrap-admin', async (req, res) => {
+    const ADMIN_EMAILS = ['oap.ibox.company@gmail.com', 'pem@i-box.company'];
+    const admin = getAdmin();
+    if (!admin) {
+      return res.json({ ok: false, error: 'Firebase Admin SDK not configured (FIREBASE_SERVICE_ACCOUNT_BASE64 missing)' });
+    }
+    const results: any[] = [];
+    const db = admin.firestore();
+    for (const email of ADMIN_EMAILS) {
+      try {
+        const userRecord = await admin.auth().getUserByEmail(email);
+        await db.collection('roles').doc(userRecord.uid).set({ role: 'admin' }, { merge: true });
+        await db.collection('users').doc(userRecord.uid).set({ role: 'admin' }, { merge: true });
+        results.push({ email, uid: userRecord.uid, ok: true });
+      } catch (e: any) {
+        results.push({ email, ok: false, error: e.message });
+      }
+    }
+    res.json({ ok: true, results });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────
   // GEMINI API PROXY
   // Browser → POST /api/ai-proxy/v1beta/models/... → Google Gemini
   // The SDK sends apiKey:'proxy' in x-goog-api-key header;
