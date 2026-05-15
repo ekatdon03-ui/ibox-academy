@@ -90,7 +90,17 @@ export default function App() {
     try {
       let role = await contentService.resolveUserRole(profile.id, profile.role);
       const updated = { ...profile, role: role as any, email: firebaseUser.email || profile.email || '' };
-      if (['oap.ibox.company@gmail.com', 'pem@i-box.company'].includes(updated.email)) updated.role = 'admin';
+      const ADMIN_EMAILS = ['oap.ibox.company@gmail.com', 'pem@i-box.company'];
+      const ADMIN_IDS = ['DxMBjT1L'];
+      if (
+        ADMIN_EMAILS.includes(updated.email) ||
+        ADMIN_IDS.includes(updated.id) ||
+        ADMIN_IDS.includes(updated.bitrixId || '')
+      ) {
+        updated.role = 'admin';
+        // Force-write to Firestore so role persists across logins
+        await contentService.setUserRole(updated.id, 'admin', firebaseUser);
+      }
       await contentService.syncUserRole(updated.id, updated.role, firebaseUser);
       await contentService.saveProfile(updated, firebaseUser);
       return updated;
