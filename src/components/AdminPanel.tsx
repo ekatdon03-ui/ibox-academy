@@ -45,7 +45,7 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
 
   const handleGenerateGlossaryFromCourse = async () => {
     if (!generationCourseId) {
-      alert("Выберите курс для генерации");
+      showToast("Выберите курс для генерации", true);
       return;
     }
     const course = courses.find(c => c.id === generationCourseId);
@@ -57,10 +57,10 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
       const result = await aiService.generateGlossaryTermFromContent(allText);
       if (result) {
         setNewTerm({ term: result.term, definition: result.definition, category: result.category });
-        alert(`ИИ предложил термин: ${result.term}. Вы можете отредактировать его перед сохранением.`);
+        showToast(`ИИ предложил термин: ${result.term}. Отредактируйте и сохраните.`);
       }
     } catch (e) {
-      alert("Ошибка при генерации через ИИ");
+      showToast("Ошибка при генерации через ИИ", true);
     } finally {
       setIsAiGeneratingTerm(false);
     }
@@ -82,13 +82,12 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
     setIsSyncingBitrix(true);
     try {
       const result = await bitrixService.syncToFirestore(contentService);
-      alert(`Синхронизация прошла успешно!\nОбновлено пользователей: ${result.usersCount}\nОтдела: ${result.deptsCount}`);
-      // Refresh user list
+      showToast(`Синхронизация успешна. Польз.: ${result.usersCount}, отд.: ${result.deptsCount}`);
       const u = await contentService.getAllUsers();
       setUsers(u);
       if (onUpdateAllUsers) onUpdateAllUsers(u);
     } catch (e) {
-      alert("Ошибка синхронизации с Bitrix24. Убедитесь, что приложение открыто внутри портала.");
+      showToast("Ошибка синхронизации с Bitrix24", true);
     } finally {
       setIsSyncingBitrix(false);
     }
@@ -119,7 +118,7 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
     setIsSavingAi(true);
     try {
       await contentService.saveAISettings(aiSettings);
-      alert("Настройки ИИ сохранены");
+      showToast("Настройки ИИ сохранены");
     } finally {
       setIsSavingAi(false);
     }
@@ -140,7 +139,7 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
       setAssignmentSuccess('glossary-save');
       setTimeout(() => setAssignmentSuccess(null), 1500);
     } catch (e) {
-      alert("Ошибка при сохранении термина");
+      showToast("Ошибка при сохранении термина", true);
     }
   };
 
@@ -150,20 +149,31 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
   };
 
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<{ message: string; confirmLabel?: string; action: () => void } | null>(null);
+  const [toast, setToast] = useState<{ message: string; isError: boolean } | null>(null);
+  const showToast = (message: string, isError = false) => {
+    setToast({ message, isError });
+    setTimeout(() => setToast(null), 3000);
+  };
 
-  const handleDeleteCourse = async (id: string) => {
-    try {
-      if (!confirm("ВНИМАНИЕ! Вы подтверждаете ПОЛНОЕ удаление курса из базы данных? Это действие необратимо.")) return;
-      setIsDeleting(id);
-      await contentService.deleteCourse(id);
-      onUpdateCourses(courses.filter(c => c.id !== id));
-      setIsDeleting(null);
-      alert("Курс полностью удален");
-    } catch (e) {
-      setIsDeleting(null);
-      console.error("Course deletion failure in UI:", e);
-      alert("Ошибка удаления курса: " + (e instanceof Error ? e.message : "Ошибка доступа"));
-    }
+  const handleDeleteCourse = (id: string) => {
+    setPendingAction({
+      message: "Удалить курс полностью? Это действие необратимо.",
+      confirmLabel: "Удалить",
+      action: async () => {
+        try {
+          setIsDeleting(id);
+          await contentService.deleteCourse(id);
+          onUpdateCourses(courses.filter(c => c.id !== id));
+          setIsDeleting(null);
+          showToast("Курс удалён");
+        } catch (e) {
+          setIsDeleting(null);
+          console.error("Course deletion failure in UI:", e);
+          showToast("Ошибка удаления: " + (e instanceof Error ? e.message : "Ошибка доступа"), true);
+        }
+      }
+    });
   };
 
   const handleViewUserHistory = async (user: UserProfile) => {
@@ -252,7 +262,7 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
         if (activeTab === 'team') setIsAssigningCourse(null);
       }, 1200);
     } catch (e) {
-      alert("Ошибка при обновлении назначения");
+      showToast("Ошибка при обновлении назначения", true);
     }
   };
 
@@ -433,11 +443,17 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
                             Ред.
                           </button>
                           <button
-                            onClick={async () => {
+                            onClick={() => {
                               if (!t.id) return;
-                              if (!confirm(`Удалить термин «${t.term}»?`)) return;
-                              await contentService.deleteGlossaryTerm(t.id);
-                              setGlossary(prev => prev.filter(g => g.id !== t.id));
+                              setPendingAction({
+                                message: `Удалить термин «${t.term}»?`,
+                                confirmLabel: "Удалить",
+                                action: async () => {
+                                  await contentService.deleteGlossaryTerm(t.id!);
+                                  setGlossary(prev => prev.filter(g => g.id !== t.id));
+                                  showToast("Термин удалён");
+                                }
+                              });
                             }}
                             className="p-2 text-red-400 hover:bg-red-50 rounded-xl transition-all"
                             title="Удалить термин"
@@ -529,18 +545,26 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
                             <div className="flex items-center justify-between">
                                <span className="text-xs font-bold">Весь список ({users.length})</span>
                                <button 
-                                 onClick={async () => {
+                                 onClick={() => {
                                    const course = courses.find(c => c.id === teamTabCourseId);
                                    const assignedIds = course?.assignedToUsers || [];
                                    const alreadyAssignedAll = users.length > 0 && users.every(u => assignedIds.includes(u.id));
-                                   
+
                                    if (alreadyAssignedAll) {
-                                     if (!confirm("Удалить назначения для ВСЕХ сотрудников?")) return;
-                                     await contentService.updateCourse(teamTabCourseId, { assignedToUsers: [] });
-                                     onUpdateCourses(courses.map(c => c.id === teamTabCourseId ? { ...c, assignedToUsers: [] } : c));
+                                     setPendingAction({
+                                       message: "Удалить назначения для ВСЕХ сотрудников?",
+                                       confirmLabel: "Удалить",
+                                       action: async () => {
+                                         await contentService.updateCourse(teamTabCourseId, { assignedToUsers: [] });
+                                         onUpdateCourses(courses.map(c => c.id === teamTabCourseId ? { ...c, assignedToUsers: [] } : c));
+                                       }
+                                     });
                                    } else {
-                                     if (!confirm(`Назначить этот курс ВСЕМ сотрудникам (${users.length} чел.)?`)) return;
-                                     await bulkAssign(teamTabCourseId, users.map(u => u.id));
+                                     setPendingAction({
+                                       message: `Назначить курс ВСЕМ сотрудникам (${users.length} чел.)?`,
+                                       confirmLabel: "Назначить",
+                                       action: () => bulkAssign(teamTabCourseId, users.map(u => u.id))
+                                     });
                                    }
                                  }}
                                  disabled={isBulkProcessing || users.length === 0}
@@ -561,18 +585,25 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
                                  return (
                                    <button 
                                      key={dept}
-                                     onClick={async () => {
+                                     onClick={() => {
                                        if (allDeptAssigned) {
-                                         if (!confirm(`Удалить назначения для всех сотрудников отдела "${dept}"?`)) return;
-                                         const currentIds = courses.find(c => c.id === teamTabCourseId)?.assignedToUsers || [];
-                                         const deptIds = deptUsers.map(u => u.id);
-                                         const newIds = currentIds.filter(id => !deptIds.includes(id));
-                                         await contentService.updateCourse(teamTabCourseId, { assignedToUsers: newIds });
-                                         onUpdateCourses(courses.map(c => c.id === teamTabCourseId ? { ...c, assignedToUsers: newIds } : c));
+                                         setPendingAction({
+                                           message: `Удалить назначения для всех сотрудников отдела "${dept}"?`,
+                                           confirmLabel: "Удалить",
+                                           action: async () => {
+                                             const currentIds = courses.find(c => c.id === teamTabCourseId)?.assignedToUsers || [];
+                                             const deptIds = deptUsers.map(u => u.id);
+                                             const newIds = currentIds.filter(id => !deptIds.includes(id));
+                                             await contentService.updateCourse(teamTabCourseId, { assignedToUsers: newIds });
+                                             onUpdateCourses(courses.map(c => c.id === teamTabCourseId ? { ...c, assignedToUsers: newIds } : c));
+                                           }
+                                         });
                                        } else {
-                                         if (confirm(`Назначить курс отделу "${dept}" (${deptUsers.length} чел.)?`)) {
-                                           bulkAssign(teamTabCourseId, deptUsers.map(u => u.id));
-                                         }
+                                         setPendingAction({
+                                           message: `Назначить курс отделу "${dept}" (${deptUsers.length} чел.)?`,
+                                           confirmLabel: "Назначить",
+                                           action: () => bulkAssign(teamTabCourseId, deptUsers.map(u => u.id))
+                                         });
                                        }
                                      }}
                                      disabled={isBulkProcessing}
@@ -768,9 +799,9 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
                                          if (user.id === currentUser.id && onUpdateUser) {
                                            onUpdateUser(updatedUser);
                                          }
-                                         alert("Роль пользователя обновлена");
+                                         showToast("Роль обновлена");
                                        } catch (e) {
-                                         alert("Ошибка при смене роли");
+                                         showToast("Ошибка при смене роли", true);
                                        }
                                      }}
                                      disabled={user.role === role}
@@ -981,9 +1012,9 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
                     await contentService.updateCourse(isConfiguringTest!, { testConfig: config });
                     onUpdateCourses(courses.map(c => c.id === isConfiguringTest ? { ...c, testConfig: config } : c));
                     setIsConfiguringTest(null);
-                    alert("Тест сохранен");
+                    showToast("Тест сохранён");
                   } catch (e) {
-                    alert("Ошибка сохранения теста");
+                    showToast("Ошибка сохранения теста", true);
                   }
                 }}
               />
@@ -1017,7 +1048,7 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
                               await contentService.updateCourse(accessCourseId!, { isPublic: newVal });
                               onUpdateCourses(courses.map(c => c.id === accessCourseId ? { ...c, isPublic: newVal } : c));
                             } catch (err) {
-                              alert("Ошибка обновлении доступа");
+                              showToast("Ошибка обновления доступа", true);
                             }
                           }}
                           className={`w-20 h-10 rounded-2xl relative transition-all shadow-inner ${courses.find(c => c.id === accessCourseId)?.isPublic ? 'bg-green-500' : 'bg-gray-300'}`}
@@ -1039,7 +1070,7 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
                               await contentService.toggleCourseVisibility(accessCourseId!, newVal);
                               onUpdateCourses(courses.map(c => c.id === accessCourseId ? { ...c, hiddenFromUsers: newVal } : c));
                             } catch (err) {
-                              alert("Ошибка при переключении видимости");
+                              showToast("Ошибка при переключении видимости", true);
                             }
                           }}
                           className={`w-20 h-10 rounded-2xl relative transition-all shadow-inner ${courses.find(c => c.id === accessCourseId)?.hiddenFromUsers ? 'bg-red-500' : 'bg-gray-300'}`}
@@ -1074,6 +1105,51 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
           </div>
         )}
       </AnimatePresence>
+
+      {/* Confirmation dialog */}
+      <AnimatePresence>
+        {pendingAction && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-10">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-[#002D57]/60 backdrop-blur-sm" onClick={() => setPendingAction(null)} />
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-[32px] w-full max-w-sm relative z-10 p-10 shadow-2xl"
+            >
+              <p className="font-display font-black uppercase text-base tracking-tight text-[#002D57] mb-8 leading-tight">{pendingAction.message}</p>
+              <div className="flex gap-4">
+                <button
+                  onClick={() => setPendingAction(null)}
+                  className="flex-1 py-4 rounded-2xl bg-gray-100 text-gray-600 font-black uppercase tracking-widest text-[10px] hover:bg-gray-200 transition-all"
+                >
+                  Отмена
+                </button>
+                <button
+                  onClick={() => { const act = pendingAction!; setPendingAction(null); act.action(); }}
+                  className="flex-1 py-4 rounded-2xl bg-red-500 text-white font-black uppercase tracking-widest text-[10px] hover:bg-red-600 transition-all"
+                >
+                  {pendingAction.confirmLabel || "Подтвердить"}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Toast notification */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 40 }}
+            className={`fixed bottom-10 left-1/2 -translate-x-1/2 z-[300] px-8 py-4 rounded-2xl shadow-2xl text-white font-black uppercase tracking-widest text-[10px] whitespace-nowrap ${toast.isError ? 'bg-red-500' : 'bg-[#002D57]'}`}
+          >
+            {toast.message}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -1085,6 +1161,11 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, onDele
   const [courseAddSuccess, setCourseAddSuccess] = useState(false);
   const [thumbnail, setThumbnail] = useState(initialData?.thumbnail || '');
   const [isGeneratingCover, setIsGeneratingCover] = useState(false);
+  const [formToast, setFormToast] = useState<{ message: string; isError: boolean } | null>(null);
+  const showFormToast = (message: string, isError = false) => {
+    setFormToast({ message, isError });
+    setTimeout(() => setFormToast(null), 4000);
+  };
 
   // Manual fields
   const [title, setTitle] = useState(initialData?.title || '');
@@ -1111,13 +1192,13 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, onDele
     
     // Check file size (browser side)
     if (file.size > 15 * 1024 * 1024) {
-      alert("Файл слишком большой. Максимальный размер — 15МБ. Для видео рекомендуется использовать YouTube/Vimeo ссылки.");
+      showFormToast("Файл слишком большой (макс. 15МБ). Для видео используйте YouTube/Vimeo ссылки.", true);
       return;
     }
 
     // Firestore Doc limit is 1MB. If file is > 1MB, it MUST be hosted externally.
     if (file.size > 700 * 1024) {
-      alert("⚠️ ФАЙЛ СЛИШКОМ ВЕЛИК ДЛЯ БАЗЫ ДАННЫХ\n\nРазмер вашего файла: " + (file.size / 1024).toFixed(0) + " КБ.\nЛимит Firestore для одного документа: ~1024 КБ.\n\nПри сохранении может возникнуть ОШИБКА 400.\n\nРЕКОМЕНДАЦИЯ: Загрузите файл в Google Drive, OneDrive или Bitrix24 и вставьте ПРЯМУЮ ССЫЛКУ в поле рядом. Это обеспечит стабильную работу контента.");
+      showFormToast(`Файл ${(file.size / 1024).toFixed(0)} КБ превышает лимит Firestore (~1МБ). Рекомендуется ссылка (Google Drive / Bitrix24).`, true);
     }
     
     const reader = new FileReader();
@@ -1142,7 +1223,7 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, onDele
     if (extractingIdx !== null) return;
     const lesson = lessons[idx];
     if (!lesson.fileUrl) {
-      alert("Сначала загрузите файл или укажите ссылку на него.");
+      showFormToast("Сначала загрузите файл или укажите ссылку на него.", true);
       return;
     }
 
@@ -1162,7 +1243,7 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, onDele
           mimeTypeContent = response.data.contentType || 'application/octet-stream';
         } catch (fetchErr: any) {
           console.error("Proxy fetch failed", fetchErr);
-          alert("Не удалось загрузить файл по ссылке. Убедитесь, что доступ к файлу открыт 'Всем, у кого есть ссылка'.");
+          showFormToast("Не удалось загрузить файл по ссылке. Убедитесь, что доступ открыт «Всем, у кого есть ссылка».", true);
           setExtractingIdx(null);
           return;
         }
@@ -1170,7 +1251,7 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, onDele
 
       // Handle HTML pages from Drive (common error)
       if (mimeTypeContent.toLowerCase().includes('text/html')) {
-        alert("ОШИБКА: Нейросеть получила HTML-страницу вместо файла презентации. \n\nКак исправить:\n1. В Google Drive выберите: Файл -> Поделиться -> Опубликовать в интернете.\n2. Используйте полученную прямую ссылку или повторите попытку через 1 минуту (иногда Drive обновляет доступ не сразу).");
+        showFormToast("Получена HTML-страница вместо файла. В Google Drive: Файл → Поделиться → Опубликовать в интернете.", true);
         setExtractingIdx(null);
         return;
       }
@@ -1180,17 +1261,16 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, onDele
       if (extracted) {
         setLessons(prev => {
           const n = [...prev];
-          // Save to aiKnowledge field, keeping student view clean
           n[idx] = { ...n[idx], aiKnowledge: (n[idx].aiKnowledge || '') + (n[idx].aiKnowledge ? "\n\n" : "") + extracted };
           return n;
         });
-        alert("Успех! ИИ изучил файл и сохранил данные в Базу Знаний (скрыто от ученика). Теперь вы можете увидеть их в разделе 'База Знаний ИИ' ниже.");
+        showFormToast("ИИ изучил файл и сохранил данные в базу знаний урока.");
       } else {
-        alert("ИИ не смог извлечь структурированную информацию. Попробуйте загрузить PDF напрямую.");
+        showFormToast("ИИ не смог извлечь информацию. Попробуйте загрузить PDF напрямую.", true);
       }
     } catch (e: any) {
       console.error("Deep extraction failed", e);
-      alert("Ошибка при анализе файла: " + (e.message || "Неизвестная ошибка"));
+      showFormToast("Ошибка при анализе файла: " + (e.message || "Неизвестная ошибка"), true);
     } finally {
       setExtractingIdx(null);
     }
@@ -1198,7 +1278,7 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, onDele
 
   const handleSaveManual = async () => {
     if (!title) {
-      alert("Укажите название курса");
+      showFormToast("Укажите название курса", true);
       return;
     }
     setIsGenerating(true);
@@ -1229,8 +1309,8 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, onDele
 
       // Check total payload size (Firestore limit is 1MB per document)
       const dataSize = JSON.stringify(courseData).length;
-      if (dataSize > 900000) { 
-        alert("ОШИБКА ХРАНЕНИЯ: Общий размер курса с вложенными файлами превышает лимит базы данных (1МБ). \n\nПожалуйста, удалите загруженные файлы и вставьте ссылки на них (Google Drive, YouTube, Bitrix24 и т.д.) в поле 'Медиа-ресурс' или в уроки.");
+      if (dataSize > 900000) {
+        showFormToast("Размер курса превышает лимит БД (1МБ). Удалите загруженные файлы и используйте ссылки.", true);
         setIsGenerating(false);
         return;
       }
@@ -1251,7 +1331,7 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, onDele
       
     } catch (err: any) {
       console.error("Save failed:", err);
-      alert("Ошибка при сохранении: " + (err.message || String(err)));
+      showFormToast("Ошибка при сохранении: " + (err.message || String(err)), true);
     } finally {
       setIsGenerating(false);
     }
@@ -1260,6 +1340,18 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, onDele
 
   return (
     <div className="space-y-8 flex flex-col h-full overflow-hidden relative">
+      <AnimatePresence>
+        {formToast && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className={`absolute top-0 left-0 right-0 z-[60] px-6 py-3 rounded-2xl text-white font-black uppercase tracking-widest text-[10px] text-center ${formToast.isError ? 'bg-red-500' : 'bg-[#002D57]'}`}
+          >
+            {formToast.message}
+          </motion.div>
+        )}
+      </AnimatePresence>
       {courseAddSuccess && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="absolute inset-0 bg-green-500/95 z-[50] flex flex-col items-center justify-center text-white">
            <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="w-24 h-24 bg-white text-green-500 rounded-full flex items-center justify-center mb-6 shadow-2xl">
@@ -1398,15 +1490,15 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, onDele
                 </div>
                 <button
                   onClick={async () => {
-                    if (!title) { alert('Сначала введите название курса'); return; }
+                    if (!title) { showFormToast('Сначала введите название курса', true); return; }
                     setIsGeneratingCover(true);
                     try {
                       const { aiService } = await import('../services/aiService');
                       const img = await aiService.generateImage(`Professional course thumbnail for: ${title}`);
                       if (img) setThumbnail(img);
-                      else alert('ИИ не смог сгенерировать обложку, попробуйте позже');
+                      else showFormToast('ИИ не смог сгенерировать обложку, попробуйте позже', true);
                     } catch (e: any) {
-                      alert('Ошибка генерации: ' + e.message);
+                      showFormToast('Ошибка генерации: ' + e.message, true);
                     } finally {
                       setIsGeneratingCover(false);
                     }
@@ -1613,6 +1705,11 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, onDele
 
 function TestEditor({ courseId, initialConfig, onSave }: { courseId: string, initialConfig?: TestConfig, onSave: (cfg: TestConfig) => void }) {
   const [questions, setQuestions] = useState<QuizQuestion[]>(initialConfig?.questions || []);
+  const [testToast, setTestToast] = useState<{ message: string; isError: boolean } | null>(null);
+  const showTestToast = (message: string, isError = false) => {
+    setTestToast({ message, isError });
+    setTimeout(() => setTestToast(null), 3000);
+  };
 
   const addQuestion = () => {
     setQuestions([...questions, { question: '', options: ['', '', '', ''], correctAnswer: 0 }]);
@@ -1621,14 +1718,26 @@ function TestEditor({ courseId, initialConfig, onSave }: { courseId: string, ini
   const handleSave = async () => {
     try {
       await onSave({ type: 'manual', questions });
-      alert("Тест успешно сохранен");
+      showTestToast("Тест сохранён");
     } catch (e) {
-      alert("Ошибка при сохранении теста");
+      showTestToast("Ошибка при сохранении теста", true);
     }
   };
 
   return (
-    <div className="flex-1 flex flex-col min-h-0">
+    <div className="flex-1 flex flex-col min-h-0 relative">
+      <AnimatePresence>
+        {testToast && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className={`absolute top-0 left-0 right-0 z-10 px-6 py-3 rounded-2xl text-white font-black uppercase tracking-widest text-[10px] text-center ${testToast.isError ? 'bg-red-500' : 'bg-[#002D57]'}`}
+          >
+            {testToast.message}
+          </motion.div>
+        )}
+      </AnimatePresence>
       <div className="flex-1 overflow-y-auto space-y-12 pr-4 custom-scrollbar">
         {questions.map((q, qIdx) => (
           <div key={qIdx} className="bg-gray-50/50 p-8 rounded-[32px] border border-gray-100 relative">

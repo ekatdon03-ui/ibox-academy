@@ -144,7 +144,7 @@ export default function SimulatorView({ courses, user, onRefreshUser }: Simulato
           }
       } catch (e) {
           console.error("Evaluation error:", e);
-          setIsSuccess(true);
+          setMessages(prev => [...prev, { role: 'model', parts: [{ text: "Ошибка оценки сессии. Попробуйте снова." }] }]);
       } finally {
           setIsLoading(false);
       }

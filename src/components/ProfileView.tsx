@@ -104,7 +104,7 @@ export default function ProfileView({ user, onLogout, onUpdateUser, courses }: P
                 <span
                   title={user.id}
                   className="px-5 py-2.5 bg-white border border-gray-100 text-gray-400 rounded-2xl text-[10px] font-black uppercase tracking-widest cursor-pointer select-all"
-                  onClick={() => { navigator.clipboard?.writeText(user.id); alert('ID скопирован: ' + user.id); }}
+                  onClick={() => { navigator.clipboard?.writeText(user.id); }}
                 >
                   ID: {user.id.substring(0, 12)}…
                 </span>

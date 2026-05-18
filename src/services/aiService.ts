@@ -2,6 +2,25 @@ import { Type } from "@google/genai";
 
 const TEXT_MODEL = "gemini-2.5-flash";
 
+// ─── Rate limiter ─────────────────────────────────────────────────────────────
+// Max 10 requests per 60 seconds per browser session
+const RATE_LIMIT = 10;
+const RATE_WINDOW_MS = 60_000;
+const requestTimestamps: number[] = [];
+
+function checkRateLimit() {
+  const now = Date.now();
+  // Remove timestamps older than the window
+  while (requestTimestamps.length > 0 && requestTimestamps[0] < now - RATE_WINDOW_MS) {
+    requestTimestamps.shift();
+  }
+  if (requestTimestamps.length >= RATE_LIMIT) {
+    const waitSec = Math.ceil((requestTimestamps[0] + RATE_WINDOW_MS - now) / 1000);
+    throw new Error(`Слишком много запросов к ИИ. Подождите ${waitSec} сек.`);
+  }
+  requestTimestamps.push(now);
+}
+
 // In the browser all requests go through our server proxy → Google Gemini.
 // This bypasses Russian ISP blocks and keeps the real API key on the server.
 // On the server (SSR/build) we talk to Google directly.
@@ -31,6 +50,7 @@ const BREVITY_RULE = `\nВАЖНО: Отвечай СТРОГО в предел�
 
 // ─── Core fetch helper ────────────────────────────────────────────────────────
 async function geminiPost(modelPath: string, body: object): Promise<any> {
+  checkRateLimit();
   const base = proxyBase();
   const key = apiKey();
   const url = `${base}/v1beta/models/${modelPath}?key=${key}`;
