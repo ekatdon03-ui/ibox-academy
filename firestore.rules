@@ -20,17 +20,26 @@ service cloud.firestore {
         request.auth.token.email == 'oap.ibox.company@gmail.com' ||
         request.auth.token.email == 'pem@i-box.company'
       );
+      let isHardcodedUid = isSignedIn() && (
+        request.auth.uid == 'bitrix_DxMBjT1L'
+      );
       let isRoleAdmin = isSignedIn()
         && exists(/databases/$(database)/documents/roles/$(request.auth.uid))
         && get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.role == 'admin';
-      return isDev || isRoleAdmin;
+      let isUsersAdmin = isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'admin';
+      return isDev || isHardcodedUid || isRoleAdmin || isUsersAdmin;
     }
 
     function isManager() {
       let isRoleManager = isSignedIn()
         && exists(/databases/$(database)/documents/roles/$(request.auth.uid))
         && get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.role == 'manager';
-      return isAdmin() || isRoleManager;
+      let isUsersManager = isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'manager';
+      return isAdmin() || isRoleManager || isUsersManager;
     }
 
     // ── COURSES ──────────────────────────────────────────────────────────
@@ -53,9 +62,7 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isOwner(userId) || isManager();
       allow create: if isOwner(userId) || isAdmin();
-      allow update: if isAdmin() ||
-        (isOwner(userId) && request.resource.data.diff(resource.data)
-          .affectedKeys().hasOnly(['name','email','position','department','score','assignedCourses']));
+      allow update: if isAdmin() || isOwner(userId);
     }
 
     // ── NOTIFICATIONS ─────────────────────────────────────────────────────
