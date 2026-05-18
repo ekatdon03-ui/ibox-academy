@@ -32,7 +32,15 @@ class BitrixService {
       const tryInit = (attempt: number) => {
         const bx = (window as any).BX24;
         if (bx) {
-          bx.init(() => resolve());
+          bx.init(() => {
+            // Request maximum available frame size immediately after init
+            try {
+              const w = Math.min(window.screen.availWidth || 1280, 1280);
+              const h = Math.min(window.screen.availHeight || 900, 900);
+              bx.resizeWindow(w, h);
+            } catch (_) {}
+            resolve();
+          });
         } else if (attempt < 20) {
           // retry every 250ms up to 5 seconds
           setTimeout(() => tryInit(attempt + 1), 250);

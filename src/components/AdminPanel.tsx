@@ -246,27 +246,27 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
   };
 
   return (
-    <div className="flex-1 p-10 bg-[#F5F7FA] min-h-full">
+    <div className="flex-1 p-4 bg-[#F5F7FA] min-h-full">
       <div className="max-w-7xl mx-auto">
-        <header className="mb-12 flex items-center justify-between">
+        <header className="mb-6 flex items-center justify-between gap-4 flex-wrap">
           <div>
-            <h1 className="text-4xl font-display font-black uppercase tracking-tight text-[#002D57]">Центр управления</h1>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-2">Панель администратора / iBOX Academy</p>
+            <h1 className="text-2xl font-display font-black uppercase tracking-tight text-[#002D57]">Центр управления</h1>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-1">Панель администратора / iBOX Academy</p>
           </div>
-          <div className="flex bg-white p-1 rounded-3xl shadow-sm border border-gray-100">
+          <div className="flex bg-white p-1 rounded-2xl shadow-sm border border-gray-100 flex-wrap gap-0.5">
              {[
                { id: 'content', label: 'Контент', icon: FileText },
                { id: 'team', label: 'Команда', icon: Users },
                { id: 'roles', label: 'Роли', icon: Shield },
                { id: 'glossary', label: 'Глоссарий', icon: ListChecks },
-               { id: 'ai', label: 'ИИ Тюнинг', icon: Zap }
+               { id: 'ai', label: 'ИИ', icon: Zap }
              ].map(tab => (
                <button
                  key={tab.id}
                  onClick={() => setActiveTab(tab.id as any)}
-                 className={`flex items-center gap-2 px-6 py-3 rounded-2xl text-[10px] uppercase font-black tracking-widest transition-all ${activeTab === tab.id ? 'bg-[#002D57] text-white shadow-lg' : 'text-gray-400 hover:text-[#002D57]'}`}
+                 className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] uppercase font-black tracking-widest transition-all ${activeTab === tab.id ? 'bg-[#002D57] text-white shadow-lg' : 'text-gray-400 hover:text-[#002D57]'}`}
                >
-                 <tab.icon size={14} />
+                 <tab.icon size={13} />
                  {tab.label}
                </button>
              ))}
@@ -331,7 +331,7 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
 
           {activeTab === 'glossary' && (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} key="glossary">
-               <div className="bg-white rounded-[40px] shadow-sm border border-gray-100 p-10 mb-10">
+               <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6 mb-10">
                  <h2 className="text-2xl font-display font-black uppercase mb-8 ml-2 tracking-tight">
                    {editingTerm ? 'Редактировать термин' : 'Новый термин'}
                  </h2>
@@ -655,7 +655,7 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
 
           {activeTab === 'ai' && (
              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} key="ai" className="max-w-4xl">
-                <div className="bg-white rounded-[40px] shadow-sm border border-gray-100 p-10 space-y-10">
+                <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6 space-y-10">
                    <header className="flex items-center gap-6">
                       <div className="w-20 h-20 bg-[#002D57] rounded-3xl flex items-center justify-center text-white shadow-2xl">
                         <Zap size={40} />
@@ -787,7 +787,7 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-[40px] w-full max-w-4xl relative z-10 p-12 shadow-2xl overflow-hidden flex flex-col"
+              className="bg-white rounded-3xl w-full max-w-4xl relative z-10 p-6 shadow-2xl overflow-hidden flex flex-col"
               style={{ maxHeight: '90vh' }}
             >
               <div className="flex items-center justify-between mb-10 shrink-0">
@@ -832,7 +832,7 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-[40px] w-full max-w-4xl relative z-10 p-12 shadow-2xl h-[80vh] flex flex-col"
+              className="bg-white rounded-3xl w-full max-w-4xl relative z-10 p-6 shadow-2xl h-[80vh] flex flex-col"
             >
               <div className="flex items-center justify-between mb-8 shrink-0">
                 <div>
@@ -917,7 +917,7 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-[40px] w-full max-w-lg relative z-10 p-12 shadow-2xl"
+              className="bg-white rounded-3xl w-full max-w-lg relative z-10 p-6 shadow-2xl"
             >
               <h2 className="text-3xl font-display font-black uppercase mb-8 tracking-tight">Назначить курс</h2>
               <div className="space-y-4">
@@ -954,7 +954,7 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-[40px] w-full max-w-4xl relative z-10 p-12 shadow-2xl h-[80vh] flex flex-col"
+              className="bg-white rounded-3xl w-full max-w-4xl relative z-10 p-6 shadow-2xl h-[80vh] flex flex-col"
             >
               <h2 className="text-3xl font-display font-black uppercase mb-8 tracking-tight shrink-0">Редактор теста: {courses.find(c => c.id === isConfiguringTest)?.title}</h2>
               <TestEditor
@@ -983,7 +983,7 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-[40px] w-full max-w-4xl relative z-10 p-12 shadow-2xl h-[80vh] flex flex-col"
+              className="bg-white rounded-3xl w-full max-w-4xl relative z-10 p-6 shadow-2xl h-[80vh] flex flex-col"
             >
               <h2 className="text-3xl font-display font-black uppercase mb-8 tracking-tight shrink-0">Управление доступом: {courses.find(c => c.id === accessCourseId)?.title}</h2>
               

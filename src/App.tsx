@@ -304,7 +304,7 @@ export default function App() {
   return (
     <div className="h-screen w-full flex bg-ibox-bg relative overflow-hidden">
       <Sidebar user={user} activeTab={activeTab} setActiveTab={setActiveTab} onLogout={handleLogout} />
-      <div className="flex-1 flex flex-col pl-72">
+      <div className="flex-1 flex flex-col pl-16">
         <Navbar user={user} />
         <main className="flex-1 mt-20 overflow-y-auto">{renderView()}</main>
       </div>
