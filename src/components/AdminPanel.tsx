@@ -1432,8 +1432,24 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
                     try {
                       const { aiService } = await import('../services/aiService');
                       const img = await aiService.generateImage(`Professional course thumbnail for: ${title}`);
-                      if (img) setThumbnail(img);
-                      else showFormToast('ИИ не смог сгенерировать обложку, попробуйте позже', true);
+                      if (!img) { showFormToast('ИИ не смог сгенерировать обложку, попробуйте позже', true); return; }
+                      // Compress base64 image to ~400x225 JPEG to stay under Firestore 1MB limit
+                      if (img.startsWith('data:')) {
+                        const compressed = await new Promise<string>((resolve) => {
+                          const image = new Image();
+                          image.onload = () => {
+                            const canvas = document.createElement('canvas');
+                            canvas.width = 400; canvas.height = 225;
+                            canvas.getContext('2d')!.drawImage(image, 0, 0, 400, 225);
+                            resolve(canvas.toDataURL('image/jpeg', 0.75));
+                          };
+                          image.onerror = () => resolve(img);
+                          image.src = img;
+                        });
+                        setThumbnail(compressed);
+                      } else {
+                        setThumbnail(img);
+                      }
                     } catch (e: any) {
                       showFormToast('Ошибка генерации: ' + e.message, true);
                     } finally {
