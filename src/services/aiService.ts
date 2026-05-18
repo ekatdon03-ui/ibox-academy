@@ -157,10 +157,7 @@ export const aiService = {
     const fullPrompt = `Professional minimalist course cover photo for a corporate LMS. Topic: ${prompt}. Photorealistic style, clean composition, no text, no letters, no words anywhere in the image. Soft lighting, modern business aesthetic.`;
     const data = await geminiPost('gemini-2.5-flash-image:generateContent', {
       contents: [{ parts: [{ text: fullPrompt }] }],
-      generationConfig: {
-        responseModalities: ['IMAGE'],
-        responseFormat: { image: { aspectRatio: '16:9' } },
-      },
+      generationConfig: { responseModalities: ['IMAGE'] },
     });
     const parts: any[] = data?.candidates?.[0]?.content?.parts ?? [];
     const imgPart = parts.find((p: any) => p.inlineData?.data);
