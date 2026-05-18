@@ -154,14 +154,17 @@ export const aiService = {
   },
 
   async generateImage(prompt: string) {
-    const fullPrompt = `Professional minimalist course cover photo for a corporate training platform. Subject: ${prompt}. Photorealistic style, clean composition, no text, no letters, no words anywhere. Soft lighting, modern aesthetic.`;
-    const data = await geminiPost('gemini-2.0-flash-exp:generateContent', {
+    const fullPrompt = `Professional minimalist course cover photo for a corporate LMS. Topic: ${prompt}. Photorealistic style, clean composition, no text, no letters, no words anywhere in the image. Soft lighting, modern business aesthetic.`;
+    const data = await geminiPost('gemini-2.5-flash-image:generateContent', {
       contents: [{ parts: [{ text: fullPrompt }] }],
-      generationConfig: { responseModalities: ['IMAGE', 'TEXT'] },
+      generationConfig: {
+        responseModalities: ['IMAGE'],
+        responseFormat: { image: { aspectRatio: '16:9' } },
+      },
     });
     const parts: any[] = data?.candidates?.[0]?.content?.parts ?? [];
     const imgPart = parts.find((p: any) => p.inlineData?.data);
-    if (!imgPart) throw new Error('Модель не вернула изображение — попробуйте позже');
+    if (!imgPart) throw new Error('Модель не вернула изображение');
     return `data:${imgPart.inlineData.mimeType ?? 'image/png'};base64,${imgPart.inlineData.data}`;
   },
 
