@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { UserProfile } from '../types';
-import { Bell, Search, X, Check } from 'lucide-react';
+import { Bell, Search, X, BookOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { contentService } from '../services/contentService';
+import { db } from '../lib/firebase';
+import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
 
 interface NavbarProps {
   user: UserProfile;
@@ -11,17 +13,63 @@ interface NavbarProps {
 export default function Navbar({ user }: NavbarProps) {
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
+  const [banner, setBanner] = useState<string | null>(null);
+  const initialLoadDone = useRef(false);
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        const data = await contentService.getNotifications(user.id);
-        setNotifications(data);
-      } catch (e) {
-        // Handled in service/lib
+    if (!user.id) return;
+
+    // Real-time listener — updates instantly when admin assigns a course
+    const q = query(
+      collection(db, 'notifications'),
+      where('userId', '==', user.id),
+      orderBy('createdAt', 'desc')
+    );
+
+    const unsub = onSnapshot(q, (snap) => {
+      const items = snap.docs.map(d => {
+        const data = d.data();
+        return {
+          id: d.id,
+          ...data,
+          time: data.createdAt?.seconds
+            ? new Date(data.createdAt.seconds * 1000).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+            : 'Только что'
+        };
+      });
+      setNotifications(items);
+
+      // Show banner on first load if there are unread notifications
+      if (!initialLoadDone.current) {
+        initialLoadDone.current = true;
+        const unread = items.filter(n => !n.read);
+        if (unread.length > 0) {
+          setBanner(unread.length === 1
+            ? `У вас новое уведомление: ${unread[0].title}`
+            : `У вас ${unread.length} новых уведомления`
+          );
+          setTimeout(() => setBanner(null), 6000);
+        }
       }
-    };
-    if (user.id) load();
+    }, () => {
+      // Fallback if onSnapshot fails (e.g. rules not deployed yet)
+      contentService.getNotifications(user.id).then(data => {
+        setNotifications(data);
+        if (!initialLoadDone.current) {
+          initialLoadDone.current = true;
+          const unread = data.filter((n: any) => !n.read);
+          if (unread.length > 0) {
+            setBanner(unread.length === 1
+              ? `У вас новое уведомление: ${unread[0].title}`
+              : `У вас ${unread.length} новых уведомления`
+            );
+            setTimeout(() => setBanner(null), 6000);
+          }
+        }
+      }).catch(() => {});
+    });
+
+    return () => unsub();
   }, [user.id]);
 
   const unreadCount = notifications.filter(n => !n.read).length;
@@ -37,6 +85,31 @@ export default function Navbar({ user }: NavbarProps) {
   };
 
   return (
+    <>
+      {/* New-notifications banner */}
+      <AnimatePresence>
+        {banner && (
+          <motion.div
+            initial={{ opacity: 0, y: -60 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -60 }}
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-[200] flex items-center gap-4 bg-[#002D57] text-white px-8 py-4 rounded-2xl shadow-2xl"
+          >
+            <BookOpen size={18} className="text-[#00A3FF] shrink-0" />
+            <span className="text-sm font-bold">{banner}</span>
+            <button
+              onClick={() => { setBanner(null); setShowNotifications(true); }}
+              className="ml-2 text-[10px] font-black uppercase tracking-widest text-[#00A3FF] hover:text-white transition-colors"
+            >
+              Открыть
+            </button>
+            <button onClick={() => setBanner(null)} className="text-white/40 hover:text-white transition-colors">
+              <X size={14} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
     <header className="h-20 bg-white/80 backdrop-blur-md border-b border-gray-100 flex items-center justify-between px-10 fixed top-0 right-0 left-72 z-40">
       <div className="flex items-center gap-4 bg-[#F5F7FA] px-6 py-3 rounded-2xl w-96 border border-gray-50 focus-within:border-[#00A3FF] transition-all">
         <Search size={16} className="text-gray-300" />
@@ -72,9 +145,13 @@ export default function Navbar({ user }: NavbarProps) {
                   <button onClick={() => setShowNotifications(false)}><X size={14} className="text-gray-300" /></button>
                 </div>
                 <div className="divide-y divide-gray-50 max-h-[300px] overflow-y-auto">
-                  {notifications.map(notif => (
-                    <div 
-                      key={notif.id} 
+                  {notifications.length === 0 ? (
+                    <div className="p-8 text-center text-[10px] font-bold uppercase tracking-widest text-gray-300">
+                      Нет уведомлений
+                    </div>
+                  ) : notifications.map(notif => (
+                    <div
+                      key={notif.id}
                       className={`p-6 hover:bg-gray-50 transition-colors cursor-pointer relative ${!notif.read ? 'bg-[#002D57]/[0.02]' : ''}`}
                       onClick={() => handleNotifClick(notif.id)}
                     >
@@ -87,12 +164,14 @@ export default function Navbar({ user }: NavbarProps) {
                     </div>
                   ))}
                 </div>
-                <button 
-                  onClick={markAllRead}
-                  className="w-full py-4 text-[10px] font-black uppercase tracking-widest text-[#00A3FF] bg-white border-t border-gray-100 hover:bg-gray-50 transition-colors"
-                >
-                  Прочитать все
-                </button>
+                {notifications.length > 0 && (
+                  <button
+                    onClick={markAllRead}
+                    className="w-full py-4 text-[10px] font-black uppercase tracking-widest text-[#00A3FF] bg-white border-t border-gray-100 hover:bg-gray-50 transition-colors"
+                  >
+                    Прочитать все
+                  </button>
+                )}
               </motion.div>
             )}
           </AnimatePresence>
@@ -109,5 +188,6 @@ export default function Navbar({ user }: NavbarProps) {
         </div>
       </div>
     </header>
+    </>
   );
 }

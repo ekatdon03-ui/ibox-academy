@@ -69,8 +69,8 @@ service cloud.firestore {
 
     // ── NOTIFICATIONS ─────────────────────────────────────────────────────
     match /notifications/{notificationId} {
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow get:  if isSignedIn() && resource.data.userId == request.auth.uid;
+      // read covers both get and list — required for onSnapshot + where queries
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
       allow create: if isSignedIn();
       allow update: if isSignedIn()
         && resource.data.userId == request.auth.uid
