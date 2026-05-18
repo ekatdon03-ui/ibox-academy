@@ -154,19 +154,15 @@ export const aiService = {
   },
 
   async generateImage(prompt: string) {
-    try {
-      const fullPrompt = `Course cover image for corporate LMS. Topic: ${prompt}. Minimalist realism photography style. Clean composition, professional atmosphere, no text, no words, no letters anywhere in the image. Suitable as a training course thumbnail.`;
-      const data = await geminiPost('gemini-2.0-flash-preview-image-generation:generateContent', {
-        contents: [{ parts: [{ text: fullPrompt }] }],
-        generationConfig: { responseModalities: ['IMAGE'] },
-      });
-      const part = data?.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData);
-      if (!part?.inlineData?.data) return null;
-      return `data:${part.inlineData.mimeType ?? 'image/png'};base64,${part.inlineData.data}`;
-    } catch (e) {
-      console.error('Image generation failed', e);
-      return null;
-    }
+    const fullPrompt = `Professional minimalist course cover photo for a corporate training platform. Subject: ${prompt}. Photorealistic style, clean composition, no text, no letters, no words anywhere. Soft lighting, modern aesthetic.`;
+    const data = await geminiPost('gemini-2.0-flash-exp:generateContent', {
+      contents: [{ parts: [{ text: fullPrompt }] }],
+      generationConfig: { responseModalities: ['IMAGE', 'TEXT'] },
+    });
+    const parts: any[] = data?.candidates?.[0]?.content?.parts ?? [];
+    const imgPart = parts.find((p: any) => p.inlineData?.data);
+    if (!imgPart) throw new Error('Модель не вернула изображение — попробуйте позже');
+    return `data:${imgPart.inlineData.mimeType ?? 'image/png'};base64,${imgPart.inlineData.data}`;
   },
 
   async generateGlossaryDraft(term: string, courseContext: string) {
