@@ -47,7 +47,7 @@ function trimResponse(text: string): string {
 const BREVITY_RULE = `\nВАЖНО: Отвечай СТРОГО в пределах 2-3 абзацев, не более 150 слов. Краткость — приоритет.`;
 
 // ─── Core fetch helper ────────────────────────────────────────────────────────
-async function geminiPost(modelPath: string, body: object): Promise<any> {
+async function geminiPost(modelPath: string, body: object, attempt = 0): Promise<any> {
   checkRateLimit();
   const base = proxyBase();
   const key = apiKey();
@@ -63,6 +63,12 @@ async function geminiPost(modelPath: string, body: object): Promise<any> {
   });
 
   if (!resp.ok) {
+    // Retry on 503 (overload) and 429 (rate limit) up to 3 times with backoff
+    if ((resp.status === 503 || resp.status === 429) && attempt < 3) {
+      const delay = (attempt + 1) * 3000; // 3s, 6s, 9s
+      await new Promise(r => setTimeout(r, delay));
+      return geminiPost(modelPath, body, attempt + 1);
+    }
     const text = await resp.text();
     throw new Error(`Gemini ${resp.status}: ${text.slice(0, 400)}`);
   }
