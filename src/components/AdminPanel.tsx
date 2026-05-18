@@ -303,26 +303,33 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
                       <div className="h-40 bg-gray-50 rounded-3xl mb-6 relative overflow-hidden">
                         <img src={course.thumbnail} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
                         <div className="absolute top-4 right-4 flex gap-2">
-                            <button 
+                            <button
                              onClick={() => setAccessCourseId(course.id)}
                              className="w-10 h-10 bg-white/90 backdrop-blur rounded-xl flex items-center justify-center text-[#002D57] hover:bg-[#002D57] hover:text-white transition-all shadow-sm"
                              title="Управление доступом"
                             >
                               <Shield size={18} />
                             </button>
-                            <button 
+                            <button
                              onClick={() => setEditingCourse(course)}
                              className="w-10 h-10 bg-white/90 backdrop-blur rounded-xl flex items-center justify-center text-[#002D57] hover:bg-[#002D57] hover:text-white transition-all shadow-sm"
                              title="Редактировать"
                             >
                               <Settings size={18} />
                             </button>
-                            <button 
+                            <button
                              onClick={() => setIsConfiguringTest(course.id)}
                              className="w-10 h-10 bg-white/90 backdrop-blur rounded-xl flex items-center justify-center text-[#002D57] hover:bg-[#00A3FF] hover:text-white transition-all shadow-sm"
                              title="Тест"
                             >
                               <ListChecks size={18} />
+                            </button>
+                            <button
+                             onClick={() => handleDeleteCourse(course.id)}
+                             className="w-10 h-10 bg-white/90 backdrop-blur rounded-xl flex items-center justify-center text-red-400 hover:bg-red-500 hover:text-white transition-all shadow-sm"
+                             title="Удалить курс"
+                            >
+                              <Trash2 size={18} />
                             </button>
                         </div>
                       </div>
@@ -418,13 +425,25 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
                           <h4 className="font-display font-black uppercase text-sm tracking-tight">{t.term}</h4>
                           <p className="text-[10px] text-gray-400 font-medium leading-relaxed mt-1 line-clamp-1">{t.definition}</p>
                        </div>
-                        <div className="flex gap-2">
-                         <button 
-                           onClick={() => handleEditTerm(t)}
-                           className="p-3 text-[#00A3FF] hover:bg-[#002D57]/5 rounded-xl transition-all font-display font-black text-[10px] uppercase tracking-widest"
-                         >
-                           Ред.
-                         </button>
+                        <div className="flex gap-2 items-center">
+                          <button
+                            onClick={() => handleEditTerm(t)}
+                            className="p-3 text-[#00A3FF] hover:bg-[#002D57]/5 rounded-xl transition-all font-display font-black text-[10px] uppercase tracking-widest"
+                          >
+                            Ред.
+                          </button>
+                          <button
+                            onClick={async () => {
+                              if (!t.id) return;
+                              if (!confirm(`Удалить термин «${t.term}»?`)) return;
+                              await contentService.deleteGlossaryTerm(t.id);
+                              setGlossary(prev => prev.filter(g => g.id !== t.id));
+                            }}
+                            className="p-2 text-red-400 hover:bg-red-50 rounded-xl transition-all"
+                            title="Удалить термин"
+                          >
+                            <Trash2 size={15} />
+                          </button>
                         </div>
                     </div>
                   ))}
@@ -1061,12 +1080,11 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
 
 
 function CourseCreationForm({ onComplete, courses, initialData, onCancel, onDeleteCourse }: { onComplete: (c: Course) => void, courses: Course[], initialData?: Course, onCancel?: () => void, onDeleteCourse?: (id: string) => void }) {
-  const [step, setStep] = useState<'info' | 'ai' | 'presentation' | 'format'>(initialData ? 'format' : 'format');
-  const [topic, setTopic] = useState('');
-  const [presentationText, setPresentationText] = useState('');
+  const [step, setStep] = useState<'format'>('format');
   const [isGenerating, setIsGenerating] = useState(false);
-  const [useAiImages, setUseAiImages] = useState(false);
   const [courseAddSuccess, setCourseAddSuccess] = useState(false);
+  const [thumbnail, setThumbnail] = useState(initialData?.thumbnail || '');
+  const [isGeneratingCover, setIsGeneratingCover] = useState(false);
 
   // Manual fields
   const [title, setTitle] = useState(initialData?.title || '');
@@ -1203,7 +1221,7 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, onDele
         type: courseType,
         fileUrl,
         isPublic,
-        thumbnail: initialData?.thumbnail || (courseType === 'video' ? 'https://images.unsplash.com/photo-1485846234645-a62644f84728?q=80&w=800' : 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=800'),
+        thumbnail: thumbnail || (courseType === 'video' ? 'https://images.unsplash.com/photo-1485846234645-a62644f84728?q=80&w=800' : 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=800'),
         testConfig: initialData?.testConfig || { type: 'none', questions: [] },
         hiddenFromUsers: initialData?.hiddenFromUsers ?? false,
         assignedToUsers: initialData?.assignedToUsers || []
@@ -1239,49 +1257,6 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, onDele
     }
   };
 
-  const handleAiGenerate = async () => {
-    if (!topic) return;
-    setIsGenerating(true);
-    try {
-      const course = await aiService.generateCourseContent(topic.substring(0, 2000));
-      let thumbnail = 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=800';
-      if (useAiImages) {
-        const generatedImg = await aiService.generateImage(`Modern thumbnail for course: ${course.title}`);
-        if (generatedImg) thumbnail = generatedImg;
-      }
-      const id = await contentService.createCourse({ ...course, thumbnail });
-      
-      setCourseAddSuccess(true);
-      setTimeout(() => {
-        onComplete({ ...course, thumbnail, id } as Course);
-        setCourseAddSuccess(false);
-      }, 1500);
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  const handleTextToPresentation = async () => {
-    if (!presentationText) return;
-    setIsGenerating(true);
-    try {
-      const gcourse = await aiService.generateCourseContent(`Generate a detailed course based on this text: ${presentationText.substring(0, 5000)}`);
-      let thumbnail = 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=800';
-      if (useAiImages) {
-        const generatedImg = await aiService.generateImage(`Thumbnail for course: ${gcourse.title}`);
-        if (generatedImg) thumbnail = generatedImg;
-      }
-      const id = await contentService.createCourse({ ...gcourse, thumbnail });
-      
-      setCourseAddSuccess(true);
-      setTimeout(() => {
-        onComplete({ ...gcourse, thumbnail, id } as Course);
-        setCourseAddSuccess(false);
-      }, 1500);
-    } finally {
-      setIsGenerating(false);
-    }
-  };
 
   return (
     <div className="space-y-8 flex flex-col h-full overflow-hidden relative">
@@ -1295,13 +1270,7 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, onDele
         </motion.div>
       )}
       <div className="flex gap-4 shrink-0 px-1">
-        <button onClick={() => setStep('format')} className={`flex-1 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${step === 'format' ? 'bg-[#002D57] text-white shadow-lg' : 'bg-gray-100 text-gray-400'}`}>Формат и инфо</button>
-        {!initialData && (
-          <>
-            <button onClick={() => setStep('ai')} className={`flex-1 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${step === 'ai' ? 'bg-[#002D57] text-white shadow-lg' : 'bg-gray-100 text-gray-400'}`}>AI Генератор</button>
-            <button onClick={() => setStep('presentation')} className={`flex-1 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${step === 'presentation' ? 'bg-[#002D57] text-white shadow-lg' : 'bg-gray-100 text-gray-400'}`}>Текст в Уроки</button>
-          </>
-        )}
+        <button onClick={() => setStep('format')} className={`flex-1 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${step === 'format' ? 'bg-[#002D57] text-white shadow-lg' : 'bg-gray-100 text-gray-400'}`}>Загрузить курс</button>
       </div>
 
       <div className="flex-1 overflow-y-auto px-1 custom-scrollbar">
@@ -1388,6 +1357,77 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, onDele
             <div className="space-y-2">
               <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-4">Описание</label>
               <textarea value={description} onChange={e => setDescription(e.target.value)} className="w-full bg-[#F5F7FA] rounded-2xl px-6 py-4 outline-none font-bold min-h-[100px]" placeholder="ОПИСАНИЕ КУРСА" />
+            </div>
+
+            {/* ── Обложка курса ─────────────────────────────────────── */}
+            <div className="space-y-4">
+              <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-4">Обложка курса</label>
+              {thumbnail && (
+                <div className="relative h-36 rounded-3xl overflow-hidden border border-gray-100">
+                  <img src={thumbnail} alt="cover" className="w-full h-full object-cover" />
+                  <button
+                    onClick={() => setThumbnail('')}
+                    className="absolute top-3 right-3 w-8 h-8 bg-white/90 rounded-xl flex items-center justify-center text-red-400 hover:bg-red-500 hover:text-white transition-all"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="relative">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={e => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = ev => setThumbnail(ev.target?.result as string);
+                      reader.readAsDataURL(file);
+                    }}
+                    className="hidden"
+                    id="cover-upload"
+                  />
+                  <label
+                    htmlFor="cover-upload"
+                    className="w-full bg-[#F5F7FA] rounded-2xl px-6 py-4 flex items-center justify-between cursor-pointer hover:bg-gray-100 transition-all border-2 border-dashed border-transparent hover:border-[#002D57]"
+                  >
+                    <span className="font-bold text-[10px] text-gray-500 uppercase">Загрузить изображение</span>
+                    <Upload size={16} className="text-gray-400" />
+                  </label>
+                </div>
+                <button
+                  onClick={async () => {
+                    if (!title) { alert('Сначала введите название курса'); return; }
+                    setIsGeneratingCover(true);
+                    try {
+                      const { aiService } = await import('../services/aiService');
+                      const img = await aiService.generateImage(`Professional course thumbnail for: ${title}`);
+                      if (img) setThumbnail(img);
+                      else alert('ИИ не смог сгенерировать обложку, попробуйте позже');
+                    } catch (e: any) {
+                      alert('Ошибка генерации: ' + e.message);
+                    } finally {
+                      setIsGeneratingCover(false);
+                    }
+                  }}
+                  disabled={isGeneratingCover}
+                  className="bg-[#002D57]/5 rounded-2xl px-6 py-4 flex items-center justify-between hover:bg-[#002D57]/10 transition-all border-2 border-transparent hover:border-[#002D57] disabled:opacity-50"
+                >
+                  <span className="font-bold text-[10px] text-[#002D57] uppercase">
+                    {isGeneratingCover ? 'Генерация...' : 'Сгенерировать через ИИ'}
+                  </span>
+                  {isGeneratingCover
+                    ? <div className="w-4 h-4 border-2 border-[#002D57]/30 border-t-[#002D57] rounded-full animate-spin" />
+                    : <Zap size={16} className="text-[#002D57]" />}
+                </button>
+              </div>
+              <input
+                value={thumbnail && !thumbnail.startsWith('data:') ? thumbnail : ''}
+                onChange={e => setThumbnail(e.target.value)}
+                placeholder="ИЛИ ВСТАВЬТЕ ССЫЛКУ НА ИЗОБРАЖЕНИЕ"
+                className="w-full bg-[#F5F7FA] rounded-2xl px-6 py-3 outline-none font-bold text-[10px] uppercase placeholder:text-gray-300 border-2 border-transparent focus:border-[#00A3FF] transition-all"
+              />
             </div>
 
             {courseType === 'presentation' && (
@@ -1552,38 +1592,19 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, onDele
           </div>
         )}
 
-        {step === 'ai' && (
-          <div className="space-y-6 pt-4">
-            <textarea value={topic} onChange={e => setTopic(e.target.value)} placeholder="ОПИШИТЕ ТЕМУ КУРСА..." className="w-full bg-[#F5F7FA] rounded-3xl p-8 outline-none font-bold text-lg min-h-[150px] placeholder:text-gray-200" />
-            <div className="flex items-center gap-3 ml-4">
-              <input type="checkbox" id="ai-img" checked={useAiImages} onChange={e => setUseAiImages(e.target.checked)} className="w-5 h-5 accent-[#00A3FF]" />
-              <label htmlFor="ai-img" className="text-[10px] font-black uppercase tracking-widest text-gray-400 cursor-pointer">Сгенерировать обложку через ИИ</label>
-            </div>
-          </div>
-        )}
-
-        {step === 'presentation' && (
-          <div className="space-y-6 pt-4">
-            <textarea value={presentationText} onChange={e => setPresentationText(e.target.value)} placeholder="ВСТАВЬТЕ ТЕКСТ ДЛЯ СОЗДАНИЯ УРОКОВ..." className="w-full bg-[#F5F7FA] rounded-3xl p-8 outline-none font-bold text-lg min-h-[200px] placeholder:text-gray-200" />
-            <div className="flex items-center gap-3 ml-4">
-              <input type="checkbox" id="ai-img-p" checked={useAiImages} onChange={e => setUseAiImages(e.target.checked)} className="w-5 h-5 accent-[#00A3FF]" />
-              <label htmlFor="ai-img-p" className="text-[10px] font-black uppercase tracking-widest text-gray-400 cursor-pointer">Сгенерировать обложку через ИИ</label>
-            </div>
-          </div>
-        )}
       </div>
 
       <div className="pt-6 shrink-0 flex gap-4">
         {onCancel && (
           <button onClick={onCancel} className="flex-1 bg-gray-100 text-gray-500 py-6 rounded-3xl font-display font-black uppercase tracking-widest hover:bg-gray-200 transition-all">Отмена</button>
         )}
-        <button 
-          onClick={step === 'format' ? handleSaveManual : step === 'ai' ? handleAiGenerate : handleTextToPresentation}
+        <button
+          onClick={handleSaveManual}
           disabled={isGenerating}
           className="flex-1 bg-[#002D57] text-white py-6 rounded-3xl font-display font-black uppercase tracking-widest shadow-xl hover:bg-[#00A3FF] transition-all flex items-center justify-center gap-3 disabled:opacity-50"
         >
-          {isGenerating ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : step === 'format' ? <Save size={18} /> : <Zap size={18} fill="currentColor" />}
-          {isGenerating ? 'В ПРОЦЕССЕ...' : step === 'format' ? 'СОХРАНИТЬ КУРС' : 'СГЕНЕРИРОВАТЬ ЧЕРЕЗ ИИ'}
+          {isGenerating ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Save size={18} />}
+          {isGenerating ? 'СОХРАНЕНИЕ...' : 'СОХРАНИТЬ КУРС'}
         </button>
       </div>
     </div>
