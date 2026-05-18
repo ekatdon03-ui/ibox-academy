@@ -35,8 +35,10 @@ function getAdminDb() {
   if (!admin) return null;
   if (adminDb) return adminDb;
   try {
-    adminDb = admin.firestore();
-    adminDb.settings({ databaseId: FIRESTORE_DB_ID });
+    // firebase-admin v10+ requires getFirestore(app, databaseId) for named databases.
+    // admin.firestore().settings({ databaseId }) does NOT work — it's ignored.
+    const { getFirestore } = require('firebase-admin/firestore');
+    adminDb = getFirestore(admin.app(), FIRESTORE_DB_ID);
     return adminDb;
   } catch (e: any) {
     console.error('Admin Firestore init failed:', e.message);

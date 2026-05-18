@@ -51,15 +51,10 @@ async function tryServerAdmin(operation: string, params: any): Promise<any> {
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({ operation, ...params }),
     });
-    if (resp.status === 503 || resp.status === 403 || resp.status === 401) return null;
-    if (!resp.ok) {
-      const err = await resp.json();
-      throw new Error(err.error || 'Admin operation failed');
-    }
+    if (!resp.ok) return null; // Any server error → fall through to client SDK
     return await resp.json();
-  } catch (e: any) {
-    if (e.message?.includes('fetch') || e.message?.includes('503')) return null;
-    throw e;
+  } catch {
+    return null; // Network error → fall through to client SDK
   }
 }
 

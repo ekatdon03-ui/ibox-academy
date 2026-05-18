@@ -153,10 +153,29 @@ export const aiService = {
     return trimResponse(text);
   },
 
-  async generateImage(_prompt: string) {
-    // Image generation via Gemini is not stable enough for production — return null
-    console.warn('Image generation skipped (not supported in proxy mode)');
-    return null;
+  async generateImage(prompt: string) {
+    // Curated pool of professional Unsplash photos (stable, no API key needed)
+    const pool: Record<string, string> = {
+      sales:    'https://images.unsplash.com/photo-1556745757-8d76bdb6984b?w=800&q=80',
+      product:  'https://images.unsplash.com/photo-1521737604893-d14cc237f11d?w=800&q=80',
+      service:  'https://images.unsplash.com/photo-1600880292203-757bb62b4baf?w=800&q=80',
+      tech:     'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&q=80',
+      finance:  'https://images.unsplash.com/photo-1554224155-6726b3ff858f?w=800&q=80',
+      team:     'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=800&q=80',
+      training: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800&q=80',
+      retail:   'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=800&q=80',
+      default:  'https://images.unsplash.com/photo-1497366216548-37526070297c?w=800&q=80',
+    };
+    try {
+      const keyword = await generateContent(
+        `Pick ONE word from this list that best matches the course topic below.\nList: sales, product, service, tech, finance, team, training, retail, default\nTopic: ${prompt}\nReply with just one word.`,
+        { maxTokens: 10, temp: 0 }
+      );
+      const key = keyword.trim().toLowerCase().replace(/[^a-z]/g, '');
+      return pool[key] ?? pool['default'];
+    } catch {
+      return pool['default'];
+    }
   },
 
   async generateGlossaryDraft(term: string, courseContext: string) {
