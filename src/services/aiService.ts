@@ -119,7 +119,7 @@ async function chatSend(message: string, history: any[], systemInstruction: stri
 // ─── Public API ───────────────────────────────────────────────────────────────
 export const aiService = {
   async trainingTutor(message: string, courseContext: string, history: any[] = [], customPrompt?: string) {
-    const cleanCont = cleanContext(courseContext).substring(0, 5000);
+    const cleanCont = cleanContext(courseContext).substring(0, 20000);
     const system = (customPrompt || `Ты — Эксперт-наставник iBOX Academy.
 Твоя задача: проводить реалистичные симуляции и тренировки сотрудников.
 
@@ -138,7 +138,7 @@ export const aiService = {
   },
 
   async smartAssistant(question: string, context: string, history: any[] = [], customPrompt?: string) {
-    const cleanCont = cleanContext(context).substring(0, 5000);
+    const cleanCont = cleanContext(context).substring(0, 20000);
     const system = (customPrompt || `Ты — Smart Assistant Академии iBOX. Отвечай только по базе знаний ниже.
 
 ПРАВИЛА:
@@ -228,7 +228,7 @@ export const aiService = {
 
     const text = await generateContent(
       `ТЫ — МЕТОДОЛОГ iBOX. Создай обучающий курс.\n\nЗАПРОС: ${prompt}\n\nТРЕБОВАНИЯ:\n1. 3-5 уроков с подробным контентом (минимум 200 слов на урок).\n2. Структура с заголовками, списками.\n3. Практические алгоритмы и речевые модули.\n4. Тест: минимум 5 вопросов с 4 вариантами ответов.\n\nФормат: JSON строго по схеме.`,
-      { mimeType: 'application/json', schema, maxTokens: 2048, temp: 0.5 }
+      { mimeType: 'application/json', schema, maxTokens: 4096, temp: 0.5 }
     );
     return JSON.parse(text.trim());
   },
@@ -248,7 +248,7 @@ export const aiService = {
           { text: `ИЗВЛЕКИ все факты, регламенты, цифры и скрипты из этого ${fileLabel} дословно. СТРОГО: не добавляй и не выдумывай ничего, чего нет в источнике. Допускаются краткие пояснения в скобках [Примечание: ...] только там, где это критически необходимо для понимания. Структурируй только то, что содержится в файле.` },
           { inlineData: { data: base64, mimeType: normalizedMimeType } }
         ],
-        maxTokens: 4096,
+        maxTokens: 8192,
       });
 
       if (!raw) return null;
