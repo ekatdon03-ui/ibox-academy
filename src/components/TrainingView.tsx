@@ -38,24 +38,28 @@ export default function TrainingView({ courses, user, onSelectCourse, refreshTri
     ? Math.round(results.reduce((acc, curr) => acc + curr.score, 0) / results.length) 
     : 0;
 
+  const isCourseAccessible = (course: Course) => {
+    if (user.role === 'admin' || user.role === 'manager') return true;
+    if (course.isPublic) return true;
+    if ((user.assignedCourses || []).includes(course.id)) return true;
+    if ((course.assignedToUsers || []).includes(user.id)) return true;
+    if (user.department && (course.assignedToDepartments || []).includes(user.department)) return true;
+    return false;
+  };
+
   const isCourseAssigned = (course: Course) => {
     const isAssignedOnUser = (user.assignedCourses || []).includes(course.id);
     const isUserInCourseAssignedList = (course.assignedToUsers || []).includes(user.id);
-    return isAssignedOnUser || isUserInCourseAssignedList;
+    const isAssignedViaDept = !!user.department && (course.assignedToDepartments || []).includes(user.department);
+    return isAssignedOnUser || isUserInCourseAssignedList || isAssignedViaDept;
   };
 
-  const assignedCourses = courses.filter(c => isCourseAssigned(c));
+  const assignedCourses = courses.filter(c => !c.hiddenFromUsers && isCourseAssigned(c));
   const otherCourses = courses.filter(c => {
     if (c.hiddenFromUsers) return false;
-    if (isCourseAssigned(c)) return false; // Don't show in catalog if it's already in tasks
-    
-    // Admins see everything, users see only public or assigned
-    if (user.role !== 'admin' && !c.isPublic) return false;
-    
-    if (selectedCategory !== 'Все тематики' && c.category !== selectedCategory) {
-      return false;
-    }
-    
+    if (isCourseAssigned(c)) return false;
+    if (!isCourseAccessible(c)) return false;
+    if (selectedCategory !== 'Все тематики' && c.category !== selectedCategory) return false;
     return true;
   });
 

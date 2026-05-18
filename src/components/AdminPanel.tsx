@@ -554,37 +554,41 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
                             <p className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-4">Назначить отделу</p>
                             <div className="flex gap-3 flex-wrap">
                                {departments.filter(d => d !== 'Все отделы').map(dept => {
-                                 const deptUsers = users.filter(u => u.department === dept);
-                                 const allDeptAssigned = deptUsers.length > 0 && deptUsers.every(u => courses.find(c => c.id === teamTabCourseId)?.assignedToUsers?.includes(u.id));
-                                 
+                                 const course = courses.find(c => c.id === teamTabCourseId);
+                                 const isDeptPinned = (course?.assignedToDepartments || []).includes(dept);
+
                                  return (
-                                   <button 
+                                   <button
                                      key={dept}
                                      onClick={() => {
-                                       if (allDeptAssigned) {
+                                       if (isDeptPinned) {
                                          setPendingAction({
-                                           message: `Удалить назначения для всех сотрудников отдела "${dept}"?`,
-                                           confirmLabel: "Удалить",
+                                           message: `Убрать доступ отдела "${dept}" к курсу?`,
+                                           confirmLabel: "Убрать",
                                            action: async () => {
-                                             const currentIds = courses.find(c => c.id === teamTabCourseId)?.assignedToUsers || [];
-                                             const deptIds = deptUsers.map(u => u.id);
-                                             const newIds = currentIds.filter(id => !deptIds.includes(id));
-                                             await contentService.updateCourse(teamTabCourseId, { assignedToUsers: newIds });
-                                             onUpdateCourses(courses.map(c => c.id === teamTabCourseId ? { ...c, assignedToUsers: newIds } : c));
+                                             const cur = courses.find(c => c.id === teamTabCourseId);
+                                             const newDepts = (cur?.assignedToDepartments || []).filter(d => d !== dept);
+                                             await contentService.updateCourse(teamTabCourseId, { assignedToDepartments: newDepts });
+                                             onUpdateCourses(courses.map(c => c.id === teamTabCourseId ? { ...c, assignedToDepartments: newDepts } : c));
                                            }
                                          });
                                        } else {
                                          setPendingAction({
-                                           message: `Назначить курс отделу "${dept}" (${deptUsers.length} чел.)?`,
+                                           message: `Дать доступ отделу "${dept}" — все текущие и новые сотрудники отдела увидят курс автоматически?`,
                                            confirmLabel: "Назначить",
-                                           action: () => bulkAssign(teamTabCourseId, deptUsers.map(u => u.id))
+                                           action: async () => {
+                                             const cur = courses.find(c => c.id === teamTabCourseId);
+                                             const newDepts = [...new Set([...(cur?.assignedToDepartments || []), dept])];
+                                             await contentService.updateCourse(teamTabCourseId, { assignedToDepartments: newDepts });
+                                             onUpdateCourses(courses.map(c => c.id === teamTabCourseId ? { ...c, assignedToDepartments: newDepts } : c));
+                                           }
                                          });
                                        }
                                      }}
                                      disabled={isBulkProcessing}
-                                     className={`px-5 py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest transition-all ${allDeptAssigned ? 'bg-[#00A3FF] text-white border-transparent' : 'bg-white/10 text-white hover:bg-white/20 border border-white/20 active:scale-95'}`}
+                                     className={`px-5 py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest transition-all ${isDeptPinned ? 'bg-[#00A3FF] text-white border-transparent' : 'bg-white/10 text-white hover:bg-white/20 border border-white/20 active:scale-95'}`}
                                    >
-                                     {dept} {allDeptAssigned && "✓"}
+                                     {dept} {isDeptPinned && '✓'}
                                    </button>
                                  );
                                })}

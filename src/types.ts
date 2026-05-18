@@ -31,6 +31,7 @@ export interface Course {
   type?: 'presentation' | 'video' | 'scorm';
   hiddenFromUsers?: boolean;
   assignedToUsers?: string[];
+  assignedToDepartments?: string[]; // All users from these depts auto-get access
   hasSimulator?: boolean; // Whether AI simulator is available for this course (default: true)
   testMode?: 'none' | 'final' | 'per_lesson' | 'both'; // When quizzes appear (default: 'final')
 }

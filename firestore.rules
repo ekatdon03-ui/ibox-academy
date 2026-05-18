@@ -46,13 +46,14 @@ service cloud.firestore {
     match /courses/{courseId} {
       allow read: if isSignedIn() && (
         isAdmin() ||
-        // Not explicitly hidden
         !(resource.data.get('hiddenFromUsers', false) == true) && (
-          // Public to all
           resource.data.get('isPublic', false) == true ||
-          // Assigned to this user
           (resource.data.get('assignedToUsers', []) is list &&
-           request.auth.uid in resource.data.get('assignedToUsers', []))
+           request.auth.uid in resource.data.get('assignedToUsers', [])) ||
+          (resource.data.get('assignedToDepartments', []) is list &&
+           resource.data.get('assignedToDepartments', []).size() > 0 &&
+           exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('department', '') in resource.data.get('assignedToDepartments', []))
         )
       );
       allow write: if isAdmin();
