@@ -95,7 +95,7 @@ export default function SimulatorView({ courses, user, onRefreshUser }: Simulato
     try {
       const context = buildRichContext(selectedCourse, selectedLessonId);
       
-      const history = messages.slice(-2); // Short history
+      const history = messages.slice(-30); // Keep last 15 exchanges
 
       // Force conclusion hint if turns exceeded
       const finalHint = nextTurnCount >= 3 ? "\n[СИСТЕМНОЕ: Пора завершать тренировку. Подведи итоги и напиши SUCCESS, если ученик справился]" : "";

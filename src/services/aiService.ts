@@ -245,7 +245,7 @@ export const aiService = {
 
       const raw = await generateContent('', {
         parts: [
-          { text: `ИЗВЛЕКИ все факты, регламенты, цифры и скрипты из этого ${fileLabel} дословно. СТРОГО: не добавляй и не выдумывай ничего, чего нет в источнике. Допускаются краткие пояснения в скобках [Примечание: ...] только там, где это критически необходимо для понимания. Структурируй только то, что содержится в файле.` },
+          { text: `Извлеки весь текст, факты, цифры, скрипты и структуру из этого ${fileLabel}. Включай все слайды, разделы и пункты полностью. Сохраняй исходную структуру.` },
           { inlineData: { data: base64, mimeType: normalizedMimeType } }
         ],
         maxTokens: 8192,
@@ -253,10 +253,12 @@ export const aiService = {
 
       if (!raw) return null;
 
-      // Strip NotebookLM and similar AI-generator footers
-      const cleaned = raw
-        .replace(/[-–—=*~]{3,}[\s\S]{0,400}?(NotebookLM|Generated with|Powered by Google|This (audio|podcast|overview) was (created|generated)|Это (аудио|резюме|обзор) (создано|сгенерировано)|Создано с помощью)[\s\S]*$/i, '')
-        .trim();
+      // Strip NotebookLM footer only if it appears in the last 600 chars after a clear separator
+      const tail = raw.slice(-600);
+      const footerIdx = tail.search(/\n[-–—=*]{3,}\s*\n[\s\S]{0,300}NotebookLM/i);
+      const cleaned = footerIdx !== -1
+        ? raw.slice(0, raw.length - 600 + footerIdx).trim()
+        : raw.trim();
 
       return cleaned || null;
     } catch (e) {

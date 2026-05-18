@@ -57,7 +57,7 @@ export default function AIAssistant({ allCourses, glossary }: AIAssistantProps) 
       const response = await aiService.smartAssistant(
         userText,
         kbContext,
-        messages.slice(-10),
+        messages.slice(-30),
         settings?.assistantPrompt
       );
 
