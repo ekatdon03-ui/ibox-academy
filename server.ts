@@ -27,6 +27,46 @@ function getAdmin() {
   }
 }
 
+// Named Firestore database — must use the correct databaseId, not "(default)"
+const FIRESTORE_DB_ID = 'ai-studio-91afac71-e303-4eb5-9634-9a51b794c3c9';
+let adminDb: any = null;
+function getAdminDb() {
+  const admin = getAdmin();
+  if (!admin) return null;
+  if (adminDb) return adminDb;
+  try {
+    adminDb = admin.firestore();
+    adminDb.settings({ databaseId: FIRESTORE_DB_ID });
+    return adminDb;
+  } catch (e: any) {
+    console.error('Admin Firestore init failed:', e.message);
+    return null;
+  }
+}
+
+const ADMIN_UIDS = ['bitrix_DxMBjT1L'];
+const ADMIN_EMAILS_SERVER = ['oap.ibox.company@gmail.com', 'pem@i-box.company'];
+
+async function verifyAdminToken(authHeader: string | undefined): Promise<string | null> {
+  const admin = getAdmin();
+  if (!admin || !authHeader?.startsWith('Bearer ')) return null;
+  try {
+    const decoded = await admin.auth().verifyIdToken(authHeader.slice(7));
+    if (ADMIN_UIDS.includes(decoded.uid) || ADMIN_EMAILS_SERVER.includes(decoded.email || '')) {
+      return decoded.uid;
+    }
+    // Check roles collection
+    const db = getAdminDb();
+    if (db) {
+      const roleDoc = await db.collection('roles').doc(decoded.uid).get();
+      if (roleDoc.data()?.role === 'admin') return decoded.uid;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 async function startServer() {
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
@@ -94,24 +134,24 @@ async function startServer() {
 
   // ─────────────────────────────────────────────────────────────────────
   // ADMIN BOOTSTRAP — forcefully sets admin role via Firebase Admin SDK
-  // bypassing all Firestore security rules
-  // GET /api/bootstrap-admin?email=pem@i-box.company
+  // GET /api/bootstrap-admin
   // ─────────────────────────────────────────────────────────────────────
   app.get('/api/bootstrap-admin', async (req, res) => {
-    const ADMIN_EMAILS = ['oap.ibox.company@gmail.com', 'pem@i-box.company'];
     const admin = getAdmin();
     if (!admin) {
       return res.json({ ok: false, error: 'Firebase Admin SDK not configured (FIREBASE_SERVICE_ACCOUNT_BASE64 missing)' });
     }
-    const db = admin.firestore();
+    const db = getAdminDb();
+    if (!db) {
+      return res.json({ ok: false, error: `Admin Firestore failed — check service account project matches projectId: gen-lang-client-0564430645` });
+    }
     const results: any[] = [];
 
-    // Search Firestore users collection by email (works for Bitrix users too)
-    for (const email of ADMIN_EMAILS) {
+    for (const email of ADMIN_EMAILS_SERVER) {
       try {
         const snap = await db.collection('users').where('email', '==', email).get();
         if (snap.empty) {
-          results.push({ email, ok: false, error: 'No Firestore user with this email — user has not logged in yet' });
+          results.push({ email, ok: false, error: 'User not found in Firestore (has not logged in yet)' });
           continue;
         }
         for (const docSnap of snap.docs) {
@@ -125,13 +165,62 @@ async function startServer() {
       }
     }
 
-    // Also list all users so we can see who is in the DB
+    // Also force-set role for known Bitrix UID
+    for (const uid of ADMIN_UIDS) {
+      try {
+        await db.collection('roles').doc(uid).set({ role: 'admin' }, { merge: true });
+        results.push({ uid, ok: true, note: 'hardcoded UID' });
+      } catch (e: any) {
+        results.push({ uid, ok: false, error: e.message });
+      }
+    }
+
     try {
       const allUsers = await db.collection('users').limit(20).get();
-      const userList = allUsers.docs.map(d => ({ id: d.id, email: d.data().email, name: d.data().name, role: d.data().role }));
+      const userList = allUsers.docs.map((d: any) => ({ id: d.id, email: d.data().email, name: d.data().name, role: d.data().role }));
       res.json({ ok: true, results, allUsers: userList });
     } catch (_) {
       res.json({ ok: true, results });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────
+  // ADMIN FIRESTORE — bypasses client security rules via Admin SDK
+  // POST /api/admin/firestore  { operation, collection, docId?, data?, merge? }
+  // ─────────────────────────────────────────────────────────────────────
+  app.post('/api/admin/firestore', async (req, res) => {
+    const admin = getAdmin();
+    if (!admin) return res.status(503).json({ error: 'Admin SDK not configured' });
+
+    const uid = await verifyAdminToken(req.headers.authorization as string | undefined);
+    if (!uid) return res.status(403).json({ error: 'Admin only' });
+
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: 'Admin Firestore unavailable' });
+
+    const { operation, collection: coll, docId, data, merge } = req.body;
+    if (!coll) return res.status(400).json({ error: 'collection required' });
+
+    try {
+      if (operation === 'delete') {
+        if (!docId) return res.status(400).json({ error: 'docId required for delete' });
+        await db.collection(coll).doc(docId).delete();
+        return res.json({ ok: true });
+      }
+      if (operation === 'set') {
+        const ref = docId ? db.collection(coll).doc(docId) : db.collection(coll).doc();
+        await ref.set(data, { merge: !!merge });
+        return res.json({ ok: true, id: ref.id });
+      }
+      if (operation === 'update') {
+        if (!docId) return res.status(400).json({ error: 'docId required for update' });
+        await db.collection(coll).doc(docId).update(data);
+        return res.json({ ok: true });
+      }
+      return res.status(400).json({ error: 'Unknown operation: ' + operation });
+    } catch (e: any) {
+      console.error('[Admin Firestore]', operation, coll, e.message);
+      return res.status(500).json({ error: e.message });
     }
   });
 

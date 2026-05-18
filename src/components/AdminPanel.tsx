@@ -312,34 +312,34 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
                     <div key={course.id} className="bg-white rounded-[40px] border border-gray-100 p-8 shadow-sm hover:shadow-xl transition-all group flex flex-col">
                       <div className="h-40 bg-gray-50 rounded-3xl mb-6 relative overflow-hidden">
                         <img src={course.thumbnail} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
-                        <div className="absolute top-4 right-4 flex gap-2">
+                        <div className="absolute top-3 right-3 grid grid-cols-2 gap-1.5">
                             <button
                              onClick={() => setAccessCourseId(course.id)}
-                             className="w-10 h-10 bg-white/90 backdrop-blur rounded-xl flex items-center justify-center text-[#002D57] hover:bg-[#002D57] hover:text-white transition-all shadow-sm"
+                             className="w-9 h-9 bg-white/90 backdrop-blur rounded-xl flex items-center justify-center text-[#002D57] hover:bg-[#002D57] hover:text-white transition-all shadow-sm"
                              title="Управление доступом"
                             >
-                              <Shield size={18} />
+                              <Shield size={15} />
                             </button>
                             <button
                              onClick={() => setEditingCourse(course)}
-                             className="w-10 h-10 bg-white/90 backdrop-blur rounded-xl flex items-center justify-center text-[#002D57] hover:bg-[#002D57] hover:text-white transition-all shadow-sm"
+                             className="w-9 h-9 bg-white/90 backdrop-blur rounded-xl flex items-center justify-center text-[#002D57] hover:bg-[#002D57] hover:text-white transition-all shadow-sm"
                              title="Редактировать"
                             >
-                              <Settings size={18} />
+                              <Settings size={15} />
                             </button>
                             <button
                              onClick={() => setIsConfiguringTest(course.id)}
-                             className="w-10 h-10 bg-white/90 backdrop-blur rounded-xl flex items-center justify-center text-[#002D57] hover:bg-[#00A3FF] hover:text-white transition-all shadow-sm"
+                             className="w-9 h-9 bg-white/90 backdrop-blur rounded-xl flex items-center justify-center text-[#002D57] hover:bg-[#00A3FF] hover:text-white transition-all shadow-sm"
                              title="Тест"
                             >
-                              <ListChecks size={18} />
+                              <ListChecks size={15} />
                             </button>
                             <button
                              onClick={() => handleDeleteCourse(course.id)}
-                             className="w-10 h-10 bg-white/90 backdrop-blur rounded-xl flex items-center justify-center text-red-400 hover:bg-red-500 hover:text-white transition-all shadow-sm"
+                             className="w-9 h-9 bg-white/90 backdrop-blur rounded-xl flex items-center justify-center text-red-400 hover:bg-red-500 hover:text-white transition-all shadow-sm"
                              title="Удалить курс"
                             >
-                              <Trash2 size={18} />
+                              <Trash2 size={15} />
                             </button>
                         </div>
                       </div>
@@ -839,21 +839,21 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
               <div className="flex items-center justify-between mb-10 shrink-0">
                 <h2 className="text-4xl font-display font-black uppercase tracking-tight">{editingCourse ? 'Редактировать' : 'Новый'} курс</h2>
               </div>
-              <CourseCreationForm 
-                courses={courses} 
+              <CourseCreationForm
+                courses={courses}
                 initialData={editingCourse || undefined}
                 onCancel={() => { setIsAddingCourse(false); setEditingCourse(null); }}
                 onDeleteCourse={handleDeleteCourse}
-                onComplete={(c) => { 
-                  // If it's a new course, we show a success mark then close
+                showToast={showToast}
+                onComplete={(c) => {
                   onAddCourse(c);
                   setAssignmentSuccess('course-added');
                   setTimeout(() => {
                     setAssignmentSuccess(null);
-                    setIsAddingCourse(false); 
+                    setIsAddingCourse(false);
                     setEditingCourse(null);
                   }, 1500);
-                }} 
+                }}
               />
               
               {assignmentSuccess === 'course-added' && (
@@ -1004,9 +1004,10 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
               className="bg-white rounded-[40px] w-full max-w-4xl relative z-10 p-12 shadow-2xl h-[80vh] flex flex-col"
             >
               <h2 className="text-3xl font-display font-black uppercase mb-8 tracking-tight shrink-0">Редактор теста: {courses.find(c => c.id === isConfiguringTest)?.title}</h2>
-              <TestEditor 
-                courseId={isConfiguringTest!} 
+              <TestEditor
+                courseId={isConfiguringTest!}
                 initialConfig={courses.find(c => c.id === isConfiguringTest)?.testConfig}
+                showToast={showToast}
                 onSave={async (config) => {
                   try {
                     await contentService.updateCourse(isConfiguringTest!, { testConfig: config });
@@ -1155,17 +1156,12 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
 }
 
 
-function CourseCreationForm({ onComplete, courses, initialData, onCancel, onDeleteCourse }: { onComplete: (c: Course) => void, courses: Course[], initialData?: Course, onCancel?: () => void, onDeleteCourse?: (id: string) => void }) {
+function CourseCreationForm({ onComplete, courses, initialData, onCancel, onDeleteCourse, showToast: showFormToast }: { onComplete: (c: Course) => void, courses: Course[], initialData?: Course, onCancel?: () => void, onDeleteCourse?: (id: string) => void, showToast: (msg: string, isError?: boolean) => void }) {
   const [step, setStep] = useState<'format'>('format');
   const [isGenerating, setIsGenerating] = useState(false);
   const [courseAddSuccess, setCourseAddSuccess] = useState(false);
   const [thumbnail, setThumbnail] = useState(initialData?.thumbnail || '');
   const [isGeneratingCover, setIsGeneratingCover] = useState(false);
-  const [formToast, setFormToast] = useState<{ message: string; isError: boolean } | null>(null);
-  const showFormToast = (message: string, isError = false) => {
-    setFormToast({ message, isError });
-    setTimeout(() => setFormToast(null), 4000);
-  };
 
   // Manual fields
   const [title, setTitle] = useState(initialData?.title || '');
@@ -1340,18 +1336,6 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, onDele
 
   return (
     <div className="space-y-8 flex flex-col h-full overflow-hidden relative">
-      <AnimatePresence>
-        {formToast && (
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className={`absolute top-0 left-0 right-0 z-[60] px-6 py-3 rounded-2xl text-white font-black uppercase tracking-widest text-[10px] text-center ${formToast.isError ? 'bg-red-500' : 'bg-[#002D57]'}`}
-          >
-            {formToast.message}
-          </motion.div>
-        )}
-      </AnimatePresence>
       {courseAddSuccess && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="absolute inset-0 bg-green-500/95 z-[50] flex flex-col items-center justify-center text-white">
            <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="w-24 h-24 bg-white text-green-500 rounded-full flex items-center justify-center mb-6 shadow-2xl">
@@ -1703,13 +1687,8 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, onDele
   );
 }
 
-function TestEditor({ courseId, initialConfig, onSave }: { courseId: string, initialConfig?: TestConfig, onSave: (cfg: TestConfig) => void }) {
+function TestEditor({ courseId, initialConfig, onSave, showToast }: { courseId: string, initialConfig?: TestConfig, onSave: (cfg: TestConfig) => void, showToast: (msg: string, isError?: boolean) => void }) {
   const [questions, setQuestions] = useState<QuizQuestion[]>(initialConfig?.questions || []);
-  const [testToast, setTestToast] = useState<{ message: string; isError: boolean } | null>(null);
-  const showTestToast = (message: string, isError = false) => {
-    setTestToast({ message, isError });
-    setTimeout(() => setTestToast(null), 3000);
-  };
 
   const addQuestion = () => {
     setQuestions([...questions, { question: '', options: ['', '', '', ''], correctAnswer: 0 }]);
@@ -1718,26 +1697,14 @@ function TestEditor({ courseId, initialConfig, onSave }: { courseId: string, ini
   const handleSave = async () => {
     try {
       await onSave({ type: 'manual', questions });
-      showTestToast("Тест сохранён");
+      showToast("Тест сохранён");
     } catch (e) {
-      showTestToast("Ошибка при сохранении теста", true);
+      showToast("Ошибка при сохранении теста", true);
     }
   };
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 relative">
-      <AnimatePresence>
-        {testToast && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            className={`absolute top-0 left-0 right-0 z-10 px-6 py-3 rounded-2xl text-white font-black uppercase tracking-widest text-[10px] text-center ${testToast.isError ? 'bg-red-500' : 'bg-[#002D57]'}`}
-          >
-            {testToast.message}
-          </motion.div>
-        )}
-      </AnimatePresence>
+    <div className="flex-1 flex flex-col min-h-0">
       <div className="flex-1 overflow-y-auto space-y-12 pr-4 custom-scrollbar">
         {questions.map((q, qIdx) => (
           <div key={qIdx} className="bg-gray-50/50 p-8 rounded-[32px] border border-gray-100 relative">
