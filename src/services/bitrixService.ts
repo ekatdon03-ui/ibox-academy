@@ -14,6 +14,7 @@ export interface BitrixDepartment {
   ID: string;
   NAME: string;
   PARENT?: string;
+  UF_HEAD?: string; // Bitrix user ID of the department head
 }
 
 class BitrixService {
@@ -105,21 +106,33 @@ class BitrixService {
     ]);
 
     const deptMap: Record<string, string> = {};
-    bxDepts.forEach((d: any) => { deptMap[d.ID] = d.NAME; });
+    // Map of Bitrix user ID → department name they head
+    const headOfDept: Record<string, string> = {};
+    bxDepts.forEach((d: any) => {
+      deptMap[d.ID] = d.NAME;
+      if (d.UF_HEAD) headOfDept[String(d.UF_HEAD)] = d.NAME;
+    });
 
     let updatedCount = 0;
     for (const bu of bxUsers) {
+      const deptName = bu.UF_DEPARTMENT?.[0] ? deptMap[bu.UF_DEPARTMENT[0]] : 'Общий отдел';
+      const isHead = !!headOfDept[String(bu.ID)];
+      const role = bu.IS_ADMIN ? 'admin' : isHead ? 'manager' : 'employee';
+
       const profile = {
-        id: bu.ID,
+        id: `bitrix_${bu.ID}`,
+        bitrixId: String(bu.ID),
         name: `${bu.NAME || ''} ${bu.LAST_NAME || ''}`.trim(),
         email: bu.EMAIL,
         position: bu.WORK_POSITION || 'Сотрудник iBOX',
-        department: bu.UF_DEPARTMENT?.[0] ? deptMap[bu.UF_DEPARTMENT[0]] : 'Общий отдел',
-        role: bu.IS_ADMIN ? 'admin' : 'employee',
+        department: deptName,
+        role,
         avatar: bu.PERSONAL_PHOTO || '',
       };
       await contentService.saveProfile(profile);
-      if (bu.IS_ADMIN) await contentService.setUserRole(bu.ID, 'admin');
+      if (role === 'admin' || role === 'manager') {
+        await contentService.setUserRole(`bitrix_${bu.ID}`, role);
+      }
       updatedCount++;
     }
 

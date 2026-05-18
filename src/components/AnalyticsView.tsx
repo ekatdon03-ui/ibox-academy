@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { BarChart3, Users, Clock, Award, ChevronRight, TrendingUp, Filter, Download } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { contentService } from '../services/contentService';
+import { bitrixService } from '../services/bitrixService';
 import { UserProfile, CourseResult, Course } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, AreaChart, Area } from 'recharts';
 
@@ -18,12 +19,24 @@ export default function AnalyticsView({ results: initialResults, courses, curren
   const [loading, setLoading] = useState(true);
   const [selectedDept, setSelectedDept] = useState<string>(currentUser.role === 'manager' ? (currentUser.department || 'Все отделы') : 'Все отделы');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [bitrixDepts, setBitrixDepts] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (bitrixService.isAvailable()) {
+      bitrixService.getDepartments()
+        .then(depts => setBitrixDepts(depts.map(d => d.NAME).filter(Boolean)))
+        .catch(() => {});
+    }
+  }, []);
 
   const departments = React.useMemo(() => {
-    return currentUser.role === 'manager' 
-      ? [currentUser.department].filter(Boolean) as string[]
-      : ['Все отделы', ...new Set(employees.map(e => e.department || '').filter(Boolean))];
-  }, [employees, currentUser]);
+    if (currentUser.role === 'manager') {
+      return [currentUser.department].filter(Boolean) as string[];
+    }
+    const fromUsers = employees.map(e => e.department || '').filter(Boolean);
+    const sources = bitrixDepts.length > 0 ? bitrixDepts : fromUsers;
+    return ['Все отделы', ...new Set(sources)];
+  }, [employees, currentUser, bitrixDepts]);
 
   const [period, setPeriod] = useState<'7' | '30' | '90'>('7');
 

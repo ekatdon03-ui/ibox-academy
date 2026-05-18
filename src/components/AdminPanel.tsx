@@ -77,6 +77,7 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
   const [deptFilter, setDeptFilter] = useState<string>(currentUser.role === 'manager' ? (currentUser.department || 'Все отделы') : 'Все отделы');
 
   const [isSyncingBitrix, setIsSyncingBitrix] = useState(false);
+  const [bitrixDepts, setBitrixDepts] = useState<string[]>([]);
 
   const handleBitrixSync = async () => {
     setIsSyncingBitrix(true);
@@ -95,12 +96,21 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
 
   useEffect(() => {
     const loadAdminData = async () => {
-      const g = await contentService.getGlossary();
+      const [g, u, s] = await Promise.all([
+        contentService.getGlossary(),
+        contentService.getAllUsers(),
+        contentService.getAISettings(),
+      ]);
       setGlossary(g);
-      const u = await contentService.getAllUsers();
       setUsers(u);
-      const s = await contentService.getAISettings();
       setAiSettings(s);
+
+      if (bitrixService.isAvailable()) {
+        try {
+          const depts = await bitrixService.getDepartments();
+          setBitrixDepts(depts.map(d => d.NAME).filter(Boolean));
+        } catch (_) {}
+      }
     };
     loadAdminData();
   }, []);
@@ -112,7 +122,10 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
     return deptFilter === 'Все отделы' || u.department === deptFilter;
   });
 
-  const departments = ['Все отделы', ...new Set(users.map(u => u.department || ''))].filter(Boolean);
+  // Merge Bitrix departments with departments found in user profiles
+  const deptNamesFromUsers = users.map(u => u.department || '').filter(Boolean);
+  const allDeptNames = bitrixDepts.length > 0 ? bitrixDepts : deptNamesFromUsers;
+  const departments = ['Все отделы', ...new Set(allDeptNames)];
 
   const handleSaveAiSettings = async () => {
     setIsSavingAi(true);
@@ -457,17 +470,25 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
                         </select>
                       </div>
 
-                      {currentUser.role === 'admin' && (
-                        <div className="flex gap-2">
-                           {departments.map(dept => (
-                             <button 
-                              key={dept} 
-                              onClick={() => setDeptFilter(dept)}
-                              className={`px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${dept === deptFilter ? 'bg-[#002D57] text-white shadow-lg' : 'text-gray-400 hover:text-[#002D57]'}`}
-                             >
-                               {dept}
-                             </button>
-                           ))}
+                      {currentUser.role === 'admin' ? (
+                        <div className="flex items-center gap-2 bg-[#F5F7FA] px-4 py-2 rounded-2xl border border-gray-100">
+                          <Users size={14} className="text-gray-400 shrink-0" />
+                          <select
+                            value={deptFilter}
+                            onChange={e => setDeptFilter(e.target.value)}
+                            className="bg-transparent border-none outline-none text-[10px] font-black uppercase tracking-widest cursor-pointer max-w-[200px]"
+                          >
+                            {departments.map(d => (
+                              <option key={d} value={d}>{d}</option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : currentUser.role === 'manager' && (
+                        <div className="flex items-center gap-2 bg-[#F5F7FA] px-4 py-2 rounded-2xl border border-gray-100">
+                          <Users size={14} className="text-[#002D57] shrink-0" />
+                          <span className="text-[10px] font-black uppercase tracking-widest text-[#002D57]">
+                            {currentUser.department || 'Мой отдел'}
+                          </span>
                         </div>
                       )}
                     </div>
