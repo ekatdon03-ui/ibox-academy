@@ -1,10 +1,8 @@
-import { Type } from "@google/genai";
-
 const TEXT_MODEL = "gemini-2.5-flash";
 
 // ─── Rate limiter ─────────────────────────────────────────────────────────────
-// Max 10 requests per 60 seconds per browser session
-const RATE_LIMIT = 10;
+// Max 6 requests per 60 seconds per browser session
+const RATE_LIMIT = 6;
 const RATE_WINDOW_MS = 60_000;
 const requestTimestamps: number[] = [];
 
@@ -86,7 +84,7 @@ async function generateContent(prompt: string, opts: {
   const body: any = { contents };
   if (opts.system) body.systemInstruction = { parts: [{ text: opts.system }] };
   body.generationConfig = {
-    maxOutputTokens: opts.maxTokens ?? 500,
+    maxOutputTokens: opts.maxTokens ?? 256,
     temperature: opts.temp ?? 0.7,
   };
   if (opts.mimeType) body.generationConfig.responseMimeType = opts.mimeType;
@@ -96,7 +94,7 @@ async function generateContent(prompt: string, opts: {
   return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
 }
 
-async function chatSend(message: string, history: any[], systemInstruction: string, maxTokens = 350): Promise<string> {
+async function chatSend(message: string, history: any[], systemInstruction: string, maxTokens = 200): Promise<string> {
   // Build contents array: system + history + new message
   const contents: any[] = [];
 
@@ -121,7 +119,7 @@ async function chatSend(message: string, history: any[], systemInstruction: stri
 // ─── Public API ───────────────────────────────────────────────────────────────
 export const aiService = {
   async trainingTutor(message: string, courseContext: string, history: any[] = [], customPrompt?: string) {
-    const cleanCont = cleanContext(courseContext);
+    const cleanCont = cleanContext(courseContext).substring(0, 5000);
     const system = (customPrompt || `Ты — Эксперт-наставник iBOX Academy.
 Твоя задача: проводить реалистичные симуляции и тренировки сотрудников.
 
@@ -135,12 +133,12 @@ export const aiService = {
       + BREVITY_RULE
       + `\n\nКОНТЕКСТ КУРСА:\n${cleanCont}`;
 
-    const text = await chatSend(message, history, system, 350);
+    const text = await chatSend(message, history, system, 200);
     return trimResponse(text);
   },
 
   async smartAssistant(question: string, context: string, history: any[] = [], customPrompt?: string) {
-    const cleanCont = cleanContext(context);
+    const cleanCont = cleanContext(context).substring(0, 5000);
     const system = (customPrompt || `Ты — Smart Assistant Академии iBOX. Отвечай только по базе знаний ниже.
 
 ПРАВИЛА:
@@ -151,7 +149,7 @@ export const aiService = {
       + BREVITY_RULE
       + `\n\nБАЗА ЗНАНИЙ:\n${cleanCont}`;
 
-    const text = await chatSend(question, history, system, 350);
+    const text = await chatSend(question, history, system, 200);
     return trimResponse(text);
   },
 
@@ -179,7 +177,7 @@ export const aiService = {
     const text = await generateContent(question, {
       system: (systemPrompt || 'Ты — помощник Академии iBOX. Отвечай кратко, 2-3 абзаца максимум. Используй Markdown.')
         + `\n\nCONTEXT: ${cleanCont}`,
-      maxTokens: 350,
+      maxTokens: 256,
     });
     return trimResponse(text);
   },
@@ -236,7 +234,7 @@ export const aiService = {
 
     const text = await generateContent(
       `ТЫ — МЕТОДОЛОГ iBOX. Создай обучающий курс.\n\nЗАПРОС: ${prompt}\n\nТРЕБОВАНИЯ:\n1. 3-5 уроков с подробным контентом (минимум 200 слов на урок).\n2. Структура с заголовками, списками.\n3. Практические алгоритмы и речевые модули.\n4. Тест: минимум 5 вопросов с 4 вариантами ответов.\n\nФормат: JSON строго по схеме.`,
-      { mimeType: 'application/json', schema, maxTokens: 4096, temp: 0.5 }
+      { mimeType: 'application/json', schema, maxTokens: 2048, temp: 0.5 }
     );
     return JSON.parse(text.trim());
   },
@@ -256,7 +254,7 @@ export const aiService = {
           { text: `ИЗВЛЕКИ все факты, регламенты, цифры и скрипты из этого ${fileLabel} дословно. Не добавляй ничего от себя. Структурированный текст только из файла.` },
           { inlineData: { data: base64, mimeType: normalizedMimeType } }
         ],
-        maxTokens: 8192,
+        maxTokens: 4096,
       });
     } catch (e) {
       console.error('Knowledge extraction failed', e);
@@ -281,7 +279,7 @@ export const aiService = {
 
     const text = await generateContent(
       `Оцени диалог сотрудника в тренажере iBOX Academy. Будь строгим.\n\nКРИТЕРИИ (сумма 100 баллов):\n1. Точность знания регламентов (0-50).\n2. Умение решать возражения без выдумок (0-30).\n3. Профессионализм (0-20).\n\nКОНТЕКСТ КУРСА: ${cleanCont.substring(0, 3000)}\n\nДИАЛОГ:\n${historyText}\n\nВерни JSON: feedback (1 предложение на русском) и score (0-100).`,
-      { mimeType: 'application/json', schema }
+      { mimeType: 'application/json', schema, maxTokens: 256 }
     );
     return JSON.parse(text.trim());
   },
@@ -299,7 +297,7 @@ export const aiService = {
       };
       const text = await generateContent(
         `Из этого учебного материала выдели ОДИН важный термин или аббревиатуру.\n\nМАТЕРИАЛ:\n${content.substring(0, 5000)}\n\nВерни JSON: term, definition (1-2 предложения), category (Продукты/Продажи/Софт/Регламенты).`,
-        { mimeType: 'application/json', schema }
+        { mimeType: 'application/json', schema, maxTokens: 128 }
       );
       return JSON.parse(text.trim());
     } catch (e) {
