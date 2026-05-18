@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { 
-  Plus, Trash2, ListChecks, FileText, Users, 
+  Plus, ListChecks, FileText, Users,
   BarChart3, Settings, Upload, Check, Zap,
   X, HelpCircle, Save, Play, Shield, Eye, EyeOff,
   Link as LinkIcon, RefreshCw
@@ -148,32 +148,11 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
     setNewTerm({ term: term.term, definition: term.definition, category: term.category });
   };
 
-  const [isDeleting, setIsDeleting] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<{ message: string; confirmLabel?: string; action: () => void } | null>(null);
   const [toast, setToast] = useState<{ message: string; isError: boolean } | null>(null);
   const showToast = (message: string, isError = false) => {
     setToast({ message, isError });
     setTimeout(() => setToast(null), 3000);
-  };
-
-  const handleDeleteCourse = (id: string) => {
-    setPendingAction({
-      message: "Удалить курс полностью? Это действие необратимо.",
-      confirmLabel: "Удалить",
-      action: async () => {
-        try {
-          setIsDeleting(id);
-          await contentService.deleteCourse(id);
-          onUpdateCourses(courses.filter(c => c.id !== id));
-          setIsDeleting(null);
-          showToast("Курс удалён");
-        } catch (e) {
-          setIsDeleting(null);
-          console.error("Course deletion failure in UI:", e);
-          showToast("Ошибка удаления: " + (e instanceof Error ? e.message : "Ошибка доступа"), true);
-        }
-      }
-    });
   };
 
   const handleViewUserHistory = async (user: UserProfile) => {
@@ -312,7 +291,7 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
                     <div key={course.id} className="bg-white rounded-[40px] border border-gray-100 p-8 shadow-sm hover:shadow-xl transition-all group flex flex-col">
                       <div className="h-40 bg-gray-50 rounded-3xl mb-6 relative overflow-hidden">
                         <img src={course.thumbnail} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
-                        <div className="absolute top-3 right-3 grid grid-cols-2 gap-1.5">
+                        <div className="absolute top-3 right-3 flex gap-1.5">
                             <button
                              onClick={() => setAccessCourseId(course.id)}
                              className="w-9 h-9 bg-white/90 backdrop-blur rounded-xl flex items-center justify-center text-[#002D57] hover:bg-[#002D57] hover:text-white transition-all shadow-sm"
@@ -333,13 +312,6 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
                              title="Тест"
                             >
                               <ListChecks size={15} />
-                            </button>
-                            <button
-                             onClick={() => handleDeleteCourse(course.id)}
-                             className="w-9 h-9 bg-white/90 backdrop-blur rounded-xl flex items-center justify-center text-red-400 hover:bg-red-500 hover:text-white transition-all shadow-sm"
-                             title="Удалить курс"
-                            >
-                              <Trash2 size={15} />
                             </button>
                         </div>
                       </div>
@@ -441,24 +413,6 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
                             className="p-3 text-[#00A3FF] hover:bg-[#002D57]/5 rounded-xl transition-all font-display font-black text-[10px] uppercase tracking-widest"
                           >
                             Ред.
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (!t.id) return;
-                              setPendingAction({
-                                message: `Удалить термин «${t.term}»?`,
-                                confirmLabel: "Удалить",
-                                action: async () => {
-                                  await contentService.deleteGlossaryTerm(t.id!);
-                                  setGlossary(prev => prev.filter(g => g.id !== t.id));
-                                  showToast("Термин удалён");
-                                }
-                              });
-                            }}
-                            className="p-2 text-red-400 hover:bg-red-50 rounded-xl transition-all"
-                            title="Удалить термин"
-                          >
-                            <Trash2 size={15} />
                           </button>
                         </div>
                     </div>
@@ -843,7 +797,6 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
                 courses={courses}
                 initialData={editingCourse || undefined}
                 onCancel={() => { setIsAddingCourse(false); setEditingCourse(null); }}
-                onDeleteCourse={handleDeleteCourse}
                 showToast={showToast}
                 onComplete={(c) => {
                   onAddCourse(c);
@@ -1156,7 +1109,7 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
 }
 
 
-function CourseCreationForm({ onComplete, courses, initialData, onCancel, onDeleteCourse, showToast: showFormToast }: { onComplete: (c: Course) => void, courses: Course[], initialData?: Course, onCancel?: () => void, onDeleteCourse?: (id: string) => void, showToast: (msg: string, isError?: boolean) => void }) {
+function CourseCreationForm({ onComplete, courses, initialData, onCancel, showToast: showFormToast }: { onComplete: (c: Course) => void, courses: Course[], initialData?: Course, onCancel?: () => void, showToast: (msg: string, isError?: boolean) => void }) {
   const [step, setStep] = useState<'format'>('format');
   const [isGenerating, setIsGenerating] = useState(false);
   const [courseAddSuccess, setCourseAddSuccess] = useState(false);
