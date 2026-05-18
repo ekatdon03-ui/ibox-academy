@@ -62,7 +62,9 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isOwner(userId) || isManager();
       allow create: if isOwner(userId) || isAdmin();
-      allow update: if isAdmin() || isOwner(userId);
+      allow update: if isAdmin() ||
+        (isOwner(userId) && request.resource.data.diff(resource.data)
+          .affectedKeys().hasOnly(['name','email','position','department','score','assignedCourses']));
     }
 
     // ── NOTIFICATIONS ─────────────────────────────────────────────────────
