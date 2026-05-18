@@ -33,11 +33,10 @@ class BitrixService {
         const bx = (window as any).BX24;
         if (bx) {
           bx.init(() => {
-            // Request full available screen width so content isn't cut off
+            // Expand frame to full screen width; keep current height unchanged
             try {
-              const w = window.screen.availWidth || window.outerWidth || 1600;
-              const h = window.screen.availHeight || window.outerHeight || 900;
-              bx.resizeWindow(w, h);
+              const w = window.screen.availWidth || window.outerWidth || 1920;
+              bx.resizeWindow(w, 0); // height=0 means don't change height
             } catch (_) {}
             resolve();
           });
