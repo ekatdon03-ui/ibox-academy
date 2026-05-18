@@ -155,24 +155,14 @@ export const aiService = {
 
   async generateImage(prompt: string) {
     try {
-      checkRateLimit();
-      const base = proxyBase();
-      const key = apiKey();
-      const url = `${base}/v1beta/models/imagen-3.0-generate-002:predict?key=${key}`;
-      const resp = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-        body: JSON.stringify({
-          instances: [{ prompt: `Professional corporate training course cover. ${prompt}. Clean modern business style, no text.` }],
-          parameters: { sampleCount: 1, aspectRatio: '16:9' },
-        }),
+      const fullPrompt = `Course cover image for corporate LMS. Topic: ${prompt}. Minimalist realism photography style. Clean composition, professional atmosphere, no text, no words, no letters anywhere in the image. Suitable as a training course thumbnail.`;
+      const data = await geminiPost('gemini-2.0-flash-preview-image-generation:generateContent', {
+        contents: [{ parts: [{ text: fullPrompt }] }],
+        generationConfig: { responseModalities: ['IMAGE'] },
       });
-      if (!resp.ok) throw new Error(`Imagen ${resp.status}`);
-      const data = await resp.json();
-      const b64 = data?.predictions?.[0]?.bytesBase64Encoded;
-      if (!b64) return null;
-      const mime = data?.predictions?.[0]?.mimeType || 'image/png';
-      return `data:${mime};base64,${b64}`;
+      const part = data?.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData);
+      if (!part?.inlineData?.data) return null;
+      return `data:${part.inlineData.mimeType ?? 'image/png'};base64,${part.inlineData.data}`;
     } catch (e) {
       console.error('Image generation failed', e);
       return null;
