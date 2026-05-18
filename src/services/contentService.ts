@@ -174,7 +174,8 @@ export const contentService = {
 
   async toggleCourseVisibility(courseId: string, hidden: boolean) {
     try {
-      await updateDoc(doc(db, COURSES_COLLECTION, courseId), { hiddenFromUsers: hidden });
+      const ok = await tryServerAdmin('update', { collection: COURSES_COLLECTION, docId: courseId, data: { hiddenFromUsers: hidden } });
+      if (ok === null) await updateDoc(doc(db, COURSES_COLLECTION, courseId), { hiddenFromUsers: hidden });
     } catch (e) {
       handleFirestoreError(e, OperationType.UPDATE, COURSES_COLLECTION);
     }
@@ -264,6 +265,9 @@ export const contentService = {
   },
 
   async createCourse(course: Omit<Course, 'id'>): Promise<string> {
+    const data = { ...course, createdAt: new Date().toISOString() };
+    const result = await tryServerAdmin('set', { collection: COURSES_COLLECTION, data });
+    if (result !== null) return result.id;
     const docRef = await addDoc(collection(db, COURSES_COLLECTION), {
       ...course,
       createdAt: serverTimestamp()
