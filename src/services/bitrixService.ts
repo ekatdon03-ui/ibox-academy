@@ -119,8 +119,9 @@ class BitrixService {
       const isHead = !!headOfDept[String(bu.ID)];
       const role = bu.IS_ADMIN ? 'admin' : isHead ? 'manager' : 'employee';
 
+      const canonicalId = `bitrix_${bu.ID}`;
       const profile = {
-        id: `bitrix_${bu.ID}`,
+        id: canonicalId,
         bitrixId: String(bu.ID),
         name: `${bu.NAME || ''} ${bu.LAST_NAME || ''}`.trim(),
         email: bu.EMAIL,
@@ -131,8 +132,13 @@ class BitrixService {
       };
       await contentService.saveProfile(profile);
       if (role === 'admin' || role === 'manager') {
-        await contentService.setUserRole(`bitrix_${bu.ID}`, role);
+        await contentService.setUserRole(canonicalId, role);
       }
+      // Remove old numeric-ID duplicate if it exists
+      try {
+        const oldProfile = await contentService.resolveUserProfile(String(bu.ID));
+        if (oldProfile) await contentService.deleteUserProfile(String(bu.ID));
+      } catch (_) {}
       updatedCount++;
     }
 

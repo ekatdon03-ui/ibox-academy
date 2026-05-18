@@ -82,8 +82,8 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
   const handleMarkAsDone = async () => {
     if (user.id && course.id && currentLesson) {
       try {
-        await contentService.updateLessonProgress(user.id, course.id, currentLesson.id, true, course.lessons.length);
-        await contentService.updateUserScore(user.id || 'anonymous', XP_REWARDS.LESSON);
+        const { firstCompletion } = await contentService.updateLessonProgress(user.id, course.id, currentLesson.id, true, course.lessons.length);
+        if (firstCompletion) await contentService.updateUserScore(user.id, XP_REWARDS.LESSON);
         setIsCompleted(true);
       } catch (e) {}
     }
@@ -167,7 +167,8 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
   const handleNext = async () => {
     try {
       if (user.id && course.id && currentLesson) {
-        await contentService.updateLessonProgress(user.id, course.id, currentLesson.id, true, course.lessons.length);
+        const { firstCompletion } = await contentService.updateLessonProgress(user.id, course.id, currentLesson.id, true, course.lessons.length);
+        if (firstCompletion) await contentService.updateUserScore(user.id, XP_REWARDS.LESSON);
       }
     } catch (e) {}
 
@@ -199,7 +200,10 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
     const finalScore = Math.round((correct / activeQuestions.length) * 100);
 
     if (quizType === 'lesson') {
-      // Per-lesson quiz: just award XP and continue to next lesson
+      // Per-lesson quiz: award XP for passing (>=80%) and continue
+      if (finalScore >= 80 && user.id) {
+        try { await contentService.updateUserScore(user.id, XP_REWARDS.QUIZ); } catch (_) {}
+      }
       setQuizType(null);
       setSelectedAnswers([]);
       const isLastLesson = currentLessonIdx >= course.lessons.length - 1;

@@ -314,21 +314,25 @@ export const contentService = {
     }
   },
 
-  async updateLessonProgress(userId: string, courseId: string, lessonId: string, completed: boolean, totalLessons?: number): Promise<void> {
-    if (!auth.currentUser) return;
+  async updateLessonProgress(userId: string, courseId: string, lessonId: string, completed: boolean, totalLessons?: number): Promise<{ firstCompletion: boolean }> {
+    if (!auth.currentUser) return { firstCompletion: false };
     const docRef = doc(db, PROGRESS_COLLECTION, `${userId}_${courseId}`);
     const snap = await getDoc(docRef);
-    
+
+    let firstCompletion = false;
     let current: UserCourseProgress;
     if (snap.exists()) {
       current = snap.data() as UserCourseProgress;
       const lessonIdx = current.lessons.findIndex(l => l.lessonId === lessonId);
       if (lessonIdx > -1) {
+        firstCompletion = completed && !current.lessons[lessonIdx].completed;
         current.lessons[lessonIdx].completed = completed;
       } else {
+        firstCompletion = completed;
         current.lessons.push({ lessonId, completed });
       }
     } else {
+      firstCompletion = completed;
       current = {
         userId,
         courseId,
@@ -365,6 +369,7 @@ export const contentService = {
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, PROGRESS_COLLECTION);
     }
+    return { firstCompletion };
   },
 
   async getAllResults(): Promise<CourseResult[]> {
@@ -433,7 +438,22 @@ export const contentService = {
   async getAllUsers(): Promise<UserProfile[]> {
     try {
       const snap = await getDocs(collection(db, USERS_COLLECTION));
-      return snap.docs.map(d => ({ id: d.id, ...d.data() } as UserProfile));
+      const all = snap.docs.map(d => ({ id: d.id, ...d.data() } as UserProfile));
+      // Deduplicate: prefer bitrix_-prefixed doc over plain numeric ID
+      const byBitrixId = new Map<string, UserProfile>();
+      const result: UserProfile[] = [];
+      for (const u of all) {
+        if (u.id.startsWith('bitrix_')) {
+          byBitrixId.set(u.id.slice(7), u); // strip prefix, store canonical
+        }
+      }
+      for (const u of all) {
+        if (!u.id.startsWith('bitrix_') && /^\d+$/.test(u.id) && byBitrixId.has(u.id)) {
+          continue; // skip old non-prefixed numeric duplicates
+        }
+        result.push(u);
+      }
+      return result;
     } catch (error) {
       console.error("Error loading users:", error);
       return [];
@@ -552,6 +572,13 @@ export const contentService = {
       if (snap.exists()) return { id: snap.id, ...snap.data() } as UserProfile;
     } catch (e) {}
     return null;
+  },
+
+  async deleteUserProfile(userId: string): Promise<void> {
+    try {
+      const ok = await tryServerAdmin('delete', { collection: USERS_COLLECTION, docId: userId });
+      if (ok === null) await deleteDoc(doc(db, USERS_COLLECTION, userId));
+    } catch (e) {}
   },
 
   async migrateInitialData() {
