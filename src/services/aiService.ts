@@ -153,18 +153,6 @@ export const aiService = {
     return trimResponse(text);
   },
 
-  async generateImage(prompt: string) {
-    const fullPrompt = `Professional minimalist course cover photo for a corporate LMS. Topic: ${prompt}. Photorealistic style, clean composition, no text, no letters, no words anywhere in the image. Soft lighting, modern business aesthetic.`;
-    const data = await geminiPost('gemini-2.5-flash-image:generateContent', {
-      contents: [{ parts: [{ text: fullPrompt }] }],
-      generationConfig: { responseModalities: ['IMAGE'] },
-    });
-    const parts: any[] = data?.candidates?.[0]?.content?.parts ?? [];
-    const imgPart = parts.find((p: any) => p.inlineData?.data);
-    if (!imgPart) throw new Error('Модель не вернула изображение');
-    return `data:${imgPart.inlineData.mimeType ?? 'image/png'};base64,${imgPart.inlineData.data}`;
-  },
-
   async generateGlossaryDraft(term: string, courseContext: string) {
     try {
       const cleanCont = cleanContext(courseContext);
@@ -255,13 +243,22 @@ export const aiService = {
       const isImage = normalizedMimeType.includes('image');
       const fileLabel = isVideo ? 'ВИДЕО' : isPdf ? 'PDF' : isImage ? 'ИЗОБРАЖЕНИЕ' : 'ФАЙЛ';
 
-      return await generateContent('', {
+      const raw = await generateContent('', {
         parts: [
-          { text: `ИЗВЛЕКИ все факты, регламенты, цифры и скрипты из этого ${fileLabel} дословно. Не добавляй ничего от себя. Структурированный текст только из файла.` },
+          { text: `ИЗВЛЕКИ все факты, регламенты, цифры и скрипты из этого ${fileLabel} дословно. СТРОГО: не добавляй и не выдумывай ничего, чего нет в источнике. Допускаются краткие пояснения в скобках [Примечание: ...] только там, где это критически необходимо для понимания. Структурируй только то, что содержится в файле.` },
           { inlineData: { data: base64, mimeType: normalizedMimeType } }
         ],
         maxTokens: 4096,
       });
+
+      if (!raw) return null;
+
+      // Strip NotebookLM and similar AI-generator footers
+      const cleaned = raw
+        .replace(/[-–—=*~]{3,}[\s\S]{0,400}?(NotebookLM|Generated with|Powered by Google|This (audio|podcast|overview) was (created|generated)|Это (аудио|резюме|обзор) (создано|сгенерировано)|Создано с помощью)[\s\S]*$/i, '')
+        .trim();
+
+      return cleaned || null;
     } catch (e) {
       console.error('Knowledge extraction failed', e);
       return null;

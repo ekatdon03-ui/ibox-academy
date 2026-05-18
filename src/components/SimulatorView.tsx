@@ -159,8 +159,8 @@ export default function SimulatorView({ courses, user, onRefreshUser }: Simulato
             <p className="text-[10px] font-bold uppercase tracking-widest text-[#00A3FF] mt-4">Выберите курс для отработки навыков в режиме диалога</p>
           </header>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {courses.map(course => (
-              <button 
+            {courses.filter(c => c.hasSimulator !== false).map(course => (
+              <button
                 key={course.id}
                 onClick={() => setSelectedCourse(course)}
                 className="bg-white p-10 rounded-[48px] border border-gray-100 shadow-sm hover:shadow-xl transition-all text-left flex items-center justify-between group"

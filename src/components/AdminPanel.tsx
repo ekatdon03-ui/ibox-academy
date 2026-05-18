@@ -1114,7 +1114,6 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
   const [isGenerating, setIsGenerating] = useState(false);
   const [courseAddSuccess, setCourseAddSuccess] = useState(false);
   const [thumbnail, setThumbnail] = useState(initialData?.thumbnail || '');
-  const [isGeneratingCover, setIsGeneratingCover] = useState(false);
 
   // Manual fields
   const [title, setTitle] = useState(initialData?.title || '');
@@ -1124,6 +1123,10 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
   const [courseType, setCourseType] = useState<'presentation' | 'video' | 'scorm'>(initialData?.type || 'presentation');
   const [fileUrl, setFileUrl] = useState(initialData?.fileUrl || '');
   const [isPublic, setIsPublic] = useState(initialData?.isPublic || false);
+  const [hasSimulator, setHasSimulator] = useState(initialData?.hasSimulator !== false);
+  const [testMode, setTestMode] = useState<'none' | 'final' | 'per_lesson' | 'both'>(initialData?.testMode || 'final');
+  // Per-lesson quiz editing: expanded lesson index
+  const [expandedLessonQuiz, setExpandedLessonQuiz] = useState<number | null>(null);
 
   const handleAddLesson = () => {
     const newLesson: Lesson = {
@@ -1250,6 +1253,8 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
         type: courseType,
         fileUrl,
         isPublic,
+        hasSimulator,
+        testMode,
         thumbnail: thumbnail || (courseType === 'video' ? 'https://images.unsplash.com/photo-1485846234645-a62644f84728?q=80&w=800' : 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=800'),
         testConfig: initialData?.testConfig || { type: 'none', questions: [] },
         hiddenFromUsers: initialData?.hiddenFromUsers ?? false,
@@ -1425,54 +1430,54 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
                     <Upload size={16} className="text-gray-400" />
                   </label>
                 </div>
-                <button
-                  onClick={async () => {
-                    if (!title) { showFormToast('Сначала введите название курса', true); return; }
-                    setIsGeneratingCover(true);
-                    try {
-                      const { aiService } = await import('../services/aiService');
-                      const img = await aiService.generateImage(`Professional course thumbnail for: ${title}`);
-                      if (!img) { showFormToast('ИИ не смог сгенерировать обложку, попробуйте позже', true); return; }
-                      // Compress base64 image to ~400x225 JPEG to stay under Firestore 1MB limit
-                      if (img.startsWith('data:')) {
-                        const compressed = await new Promise<string>((resolve) => {
-                          const image = new Image();
-                          image.onload = () => {
-                            const canvas = document.createElement('canvas');
-                            canvas.width = 400; canvas.height = 225;
-                            canvas.getContext('2d')!.drawImage(image, 0, 0, 400, 225);
-                            resolve(canvas.toDataURL('image/jpeg', 0.75));
-                          };
-                          image.onerror = () => resolve(img);
-                          image.src = img;
-                        });
-                        setThumbnail(compressed);
-                      } else {
-                        setThumbnail(img);
-                      }
-                    } catch (e: any) {
-                      showFormToast('Ошибка генерации: ' + e.message, true);
-                    } finally {
-                      setIsGeneratingCover(false);
-                    }
-                  }}
-                  disabled={isGeneratingCover}
-                  className="bg-[#002D57]/5 rounded-2xl px-6 py-4 flex items-center justify-between hover:bg-[#002D57]/10 transition-all border-2 border-transparent hover:border-[#002D57] disabled:opacity-50"
-                >
-                  <span className="font-bold text-[10px] text-[#002D57] uppercase">
-                    {isGeneratingCover ? 'Генерация...' : 'Сгенерировать через ИИ'}
-                  </span>
-                  {isGeneratingCover
-                    ? <div className="w-4 h-4 border-2 border-[#002D57]/30 border-t-[#002D57] rounded-full animate-spin" />
-                    : <Zap size={16} className="text-[#002D57]" />}
-                </button>
+                <input
+                  value={thumbnail && !thumbnail.startsWith('data:') ? thumbnail : ''}
+                  onChange={e => setThumbnail(e.target.value)}
+                  placeholder="ИЛИ ВСТАВЬТЕ ССЫЛКУ НА ИЗОБРАЖЕНИЕ"
+                  className="w-full bg-[#F5F7FA] rounded-2xl px-6 py-4 outline-none font-bold text-[10px] uppercase placeholder:text-gray-300 border-2 border-transparent focus:border-[#00A3FF] transition-all"
+                />
               </div>
-              <input
-                value={thumbnail && !thumbnail.startsWith('data:') ? thumbnail : ''}
-                onChange={e => setThumbnail(e.target.value)}
-                placeholder="ИЛИ ВСТАВЬТЕ ССЫЛКУ НА ИЗОБРАЖЕНИЕ"
-                className="w-full bg-[#F5F7FA] rounded-2xl px-6 py-3 outline-none font-bold text-[10px] uppercase placeholder:text-gray-300 border-2 border-transparent focus:border-[#00A3FF] transition-all"
-              />
+            </div>
+
+            {/* ── Тренажер и тесты ──────────────────────────────────── */}
+            <div className="space-y-4">
+              <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-4">Настройки обучения</label>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Simulator toggle */}
+                <div className="flex items-center justify-between p-6 bg-gray-50 rounded-[28px] border border-gray-100">
+                  <div>
+                    <p className="font-display font-black uppercase text-sm tracking-tight text-[#002D57]">ИИ Тренажер</p>
+                    <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">Симуляция разговора с ИИ</p>
+                  </div>
+                  <button
+                    onClick={() => setHasSimulator(!hasSimulator)}
+                    className={`w-16 h-8 rounded-2xl relative transition-all shadow-inner shrink-0 ${hasSimulator ? 'bg-green-500' : 'bg-gray-300'}`}
+                  >
+                    <div className={`absolute top-1 w-6 h-6 bg-white rounded-xl shadow-md transition-all ${hasSimulator ? 'left-9' : 'left-1'}`} />
+                  </button>
+                </div>
+
+                {/* Test mode */}
+                <div className="p-6 bg-gray-50 rounded-[28px] border border-gray-100 space-y-3">
+                  <p className="font-display font-black uppercase text-sm tracking-tight text-[#002D57]">Тестирование</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {([
+                      { id: 'none', label: 'Без теста' },
+                      { id: 'final', label: 'Итоговый' },
+                      { id: 'per_lesson', label: 'После уроков' },
+                      { id: 'both', label: 'Оба варианта' },
+                    ] as const).map(opt => (
+                      <button
+                        key={opt.id}
+                        onClick={() => setTestMode(opt.id)}
+                        className={`py-2 px-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${testMode === opt.id ? 'bg-[#002D57] text-white shadow-md' : 'bg-white border border-gray-200 text-gray-400 hover:border-[#002D57]'}`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
 
             {courseType === 'presentation' && (
@@ -1617,8 +1622,8 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
                                <span className="text-[8px] font-bold text-ibox-blue/40 italic">ИИ использует это для ответов в симуляторе</span>
                              </div>
                            </div>
-                           <textarea 
-                             placeholder="Здесь хранятся извлеченные данные из презентаций/видео..." 
+                           <textarea
+                             placeholder="Здесь хранятся извлеченные данные из презентаций/видео..."
                              className="w-full bg-white/50 rounded-xl px-5 py-4 text-xs font-medium text-ibox-blue/80 border-2 border-dotted border-ibox-blue/20 focus:border-ibox-blue outline-none transition-all resize-none min-h-[100px]"
                              value={lesson.aiKnowledge || ''}
                              onChange={(e) => {
@@ -1628,6 +1633,98 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
                              }}
                            />
                         </div>
+
+                        {/* Per-lesson quiz editor (visible when testMode includes per_lesson) */}
+                        {(testMode === 'per_lesson' || testMode === 'both') && (
+                          <div className="border-2 border-dashed border-[#00A3FF]/30 rounded-2xl overflow-hidden">
+                            <button
+                              onClick={() => setExpandedLessonQuiz(expandedLessonQuiz === idx ? null : idx)}
+                              className="w-full flex items-center justify-between px-5 py-3 bg-[#00A3FF]/5 hover:bg-[#00A3FF]/10 transition-all"
+                            >
+                              <div className="flex items-center gap-2 text-[#00A3FF]">
+                                <HelpCircle size={12} />
+                                <span className="text-[9px] font-black uppercase">
+                                  Тест после урока {lesson.testConfig?.questions?.length ? `(${lesson.testConfig.questions.length} вопр.)` : '— не добавлен'}
+                                </span>
+                              </div>
+                              <span className="text-[9px] font-black text-[#00A3FF]">{expandedLessonQuiz === idx ? '▲' : '▼'}</span>
+                            </button>
+                            {expandedLessonQuiz === idx && (
+                              <div className="p-4 space-y-3 bg-white">
+                                {(lesson.testConfig?.questions || []).map((q, qIdx) => (
+                                  <div key={qIdx} className="bg-gray-50 rounded-xl p-4 relative">
+                                    <button
+                                      onClick={() => {
+                                        const n = [...lessons];
+                                        const qs = [...(n[idx].testConfig?.questions || [])];
+                                        qs.splice(qIdx, 1);
+                                        n[idx] = { ...n[idx], testConfig: { type: 'manual', questions: qs } };
+                                        setLessons(n);
+                                      }}
+                                      className="absolute top-3 right-3 text-red-400 hover:text-red-600"
+                                    ><X size={14} /></button>
+                                    <input
+                                      className="w-full bg-white rounded-xl px-4 py-2 outline-none font-bold text-xs mb-3 shadow-sm"
+                                      placeholder={`Вопрос ${qIdx + 1}`}
+                                      value={q.question}
+                                      onChange={e => {
+                                        const n = [...lessons];
+                                        const qs = [...(n[idx].testConfig?.questions || [])];
+                                        qs[qIdx] = { ...qs[qIdx], question: e.target.value };
+                                        n[idx] = { ...n[idx], testConfig: { type: 'manual', questions: qs } };
+                                        setLessons(n);
+                                      }}
+                                    />
+                                    <div className="grid grid-cols-2 gap-2">
+                                      {q.options.map((opt, oIdx) => (
+                                        <div key={oIdx} className="flex items-center gap-2 bg-white rounded-xl px-3 py-2 shadow-sm">
+                                          <input
+                                            type="radio"
+                                            name={`lesson-${idx}-q${qIdx}`}
+                                            checked={q.correctAnswer === oIdx}
+                                            onChange={() => {
+                                              const n = [...lessons];
+                                              const qs = [...(n[idx].testConfig?.questions || [])];
+                                              qs[qIdx] = { ...qs[qIdx], correctAnswer: oIdx };
+                                              n[idx] = { ...n[idx], testConfig: { type: 'manual', questions: qs } };
+                                              setLessons(n);
+                                            }}
+                                          />
+                                          <input
+                                            className="flex-1 outline-none text-[10px] font-bold"
+                                            placeholder={`Вариант ${oIdx + 1}`}
+                                            value={opt}
+                                            onChange={e => {
+                                              const n = [...lessons];
+                                              const qs = [...(n[idx].testConfig?.questions || [])];
+                                              const opts = [...qs[qIdx].options];
+                                              opts[oIdx] = e.target.value;
+                                              qs[qIdx] = { ...qs[qIdx], options: opts };
+                                              n[idx] = { ...n[idx], testConfig: { type: 'manual', questions: qs } };
+                                              setLessons(n);
+                                            }}
+                                          />
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ))}
+                                <button
+                                  onClick={() => {
+                                    const n = [...lessons];
+                                    const qs = [...(n[idx].testConfig?.questions || [])];
+                                    qs.push({ question: '', options: ['', '', '', ''], correctAnswer: 0 });
+                                    n[idx] = { ...n[idx], testConfig: { type: 'manual', questions: qs } };
+                                    setLessons(n);
+                                  }}
+                                  className="w-full py-3 border-2 border-dashed border-gray-200 rounded-xl flex items-center justify-center gap-2 text-[9px] font-black uppercase text-gray-400 hover:text-[#002D57] hover:border-[#002D57] transition-all"
+                                >
+                                  <Plus size={14} /> Добавить вопрос
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}

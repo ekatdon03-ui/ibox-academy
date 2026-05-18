@@ -13,10 +13,22 @@ interface CoursePlayerProps {
 
 export default function CoursePlayer({ course, user, onClose }: CoursePlayerProps) {
   const [currentLessonIdx, setCurrentLessonIdx] = useState(0);
-  const [showQuiz, setShowQuiz] = useState(false);
+  // quizType: null = no quiz shown; 'lesson' = per-lesson quiz; 'final' = final quiz
+  const [quizType, setQuizType] = useState<'lesson' | 'final' | null>(null);
   const [quizFinished, setQuizFinished] = useState(false);
   const [selectedAnswers, setSelectedAnswers] = useState<number[]>([]);
   const [score, setScore] = useState(0);
+
+  const showQuiz = quizType !== null;
+  // Effective test mode, defaulting to 'final' for backwards compatibility
+  const testMode = course.testMode ?? 'final';
+  const hasFinalQuiz = (testMode === 'final' || testMode === 'both') && (course.testConfig?.questions?.length ?? 0) > 0;
+  const hasPerLessonQuiz = testMode === 'per_lesson' || testMode === 'both';
+
+  // Which questions to show for the active quiz
+  const activeQuestions = quizType === 'lesson'
+    ? (course.lessons[currentLessonIdx]?.testConfig?.questions ?? [])
+    : (course.testConfig?.questions ?? []);
 
   if (!course.lessons || course.lessons.length === 0) {
     return (
@@ -132,105 +144,99 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
   };
 
   const handleLessonChange = async (idx: number) => {
-    // Mark current lesson as completed before moving if not quiz
-    if (!showQuiz && user.id && course.id && currentLesson) {
+    if (quizType === null && user.id && course.id && currentLesson) {
       try {
         await contentService.updateLessonProgress(user.id, course.id, currentLesson.id, true, course.lessons.length);
       } catch (e) {}
     }
     setCurrentLessonIdx(idx);
-    setShowQuiz(false);
+    setQuizType(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const completeCourseWithoutQuiz = async () => {
+    try {
+      if (user.id && course.id) {
+        await contentService.saveResult({ userId: user.id, courseId: course.id, score: 100, progress: 100, timestamp: new Date().toISOString() });
+        await contentService.updateUserScore(user.id, XP_REWARDS.QUIZ);
+      }
+    } catch (e) {}
+    onClose();
+  };
+
   const handleNext = async () => {
-    // Save current lesson progress
     try {
       if (user.id && course.id && currentLesson) {
         await contentService.updateLessonProgress(user.id, course.id, currentLesson.id, true, course.lessons.length);
       }
-    } catch (e) {
-      console.error("Progress update error:", e);
+    } catch (e) {}
+
+    const lessonQs = course.lessons[currentLessonIdx]?.testConfig?.questions ?? [];
+    const isLastLesson = currentLessonIdx >= course.lessons.length - 1;
+
+    // Show per-lesson quiz first (if any)
+    if (hasPerLessonQuiz && lessonQs.length > 0) {
+      setSelectedAnswers([]);
+      setQuizType('lesson');
+      return;
     }
 
-    if (currentLessonIdx < course.lessons.length - 1) {
+    if (!isLastLesson) {
       setCurrentLessonIdx(prev => prev + 1);
-    } else if (course.testConfig?.questions && course.testConfig.questions.length > 0) {
-      setShowQuiz(true);
+    } else if (hasFinalQuiz) {
+      setSelectedAnswers([]);
+      setQuizType('final');
     } else {
-      try {
-        if (user.id && course.id) {
-          await contentService.saveResult({
-            userId: user.id || 'anonymous',
-            courseId: course.id,
-            score: 100,
-            progress: 100,
-            timestamp: new Date().toISOString()
-          });
-          await contentService.updateUserScore(user.id || 'anonymous', XP_REWARDS.QUIZ);
-        }
-      } catch (e) {
-        console.error("Save result error:", e);
-      }
-      onClose();
+      await completeCourseWithoutQuiz();
     }
   };
 
   const handleQuizSubmit = async () => {
     let correct = 0;
-    const questions = course.testConfig?.questions || [];
-    selectedAnswers.forEach((ans, idx) => {
-      if (ans === questions[idx].correctAnswer) correct++;
+    activeQuestions.forEach((q, idx) => {
+      if (selectedAnswers[idx] === q.correctAnswer) correct++;
     });
+    const finalScore = Math.round((correct / activeQuestions.length) * 100);
 
-    const finalScore = Math.round((correct / questions.length) * 100);
+    if (quizType === 'lesson') {
+      // Per-lesson quiz: just award XP and continue to next lesson
+      setQuizType(null);
+      setSelectedAnswers([]);
+      const isLastLesson = currentLessonIdx >= course.lessons.length - 1;
+      if (!isLastLesson) {
+        setCurrentLessonIdx(prev => prev + 1);
+      } else if (hasFinalQuiz) {
+        setSelectedAnswers([]);
+        setQuizType('final');
+      } else {
+        await completeCourseWithoutQuiz();
+      }
+      return;
+    }
+
+    // Final quiz
     setScore(finalScore);
     setQuizFinished(true);
 
-    if (finalScore >= 80) {
-      try {
-        if (user.id && course.id) {
-          // Explicitly mark all lessons as completed to trigger 100% and status: completed
-          const lastLessonId = course.lessons[course.lessons.length - 1].id;
-          await contentService.updateLessonProgress(user.id, course.id, lastLessonId, true, course.lessons.length);
-          
-          await contentService.saveResult({
-            userId: user.id || 'anonymous',
-            courseId: course.id,
-            score: finalScore,
-            progress: 100,
-            timestamp: new Date().toISOString()
-          });
-          await contentService.updateUserScore(user.id || 'anonymous', XP_REWARDS.QUIZ);
-        }
-      } catch (e) {
-        console.error("Final progress save error:", e);
-      }
-    } else {
-      // If failed, we don't save 100% result or move to completed
-      console.log("Quiz failed, score below 80%");
+    try {
       if (user.id && course.id) {
-        // Just save result but don't mark 100% progress
-        await contentService.saveResult({
-          userId: user.id || 'anonymous',
-          courseId: course.id,
-          score: finalScore,
-          progress: score, // Progress based on score? No, usually progress is based on content consumption.
-          // But user wants to show it's not "done" yet.
-          timestamp: new Date().toISOString()
-        });
+        const lastLessonId = course.lessons[course.lessons.length - 1].id;
+        if (finalScore >= 80) {
+          await contentService.updateLessonProgress(user.id, course.id, lastLessonId, true, course.lessons.length);
+          await contentService.saveResult({ userId: user.id, courseId: course.id, score: finalScore, progress: 100, timestamp: new Date().toISOString() });
+          await contentService.updateUserScore(user.id, XP_REWARDS.QUIZ);
+        } else {
+          await contentService.saveResult({ userId: user.id, courseId: course.id, score: finalScore, progress: 50, timestamp: new Date().toISOString() });
+        }
       }
-    }
+    } catch (e) {}
   };
 
   const handleClose = async () => {
-    // Save current progress before closing
-    if (user.id && course.id && currentLesson && !showQuiz) {
+    if (user.id && course.id && currentLesson && quizType === null) {
       try {
         await contentService.updateLessonProgress(user.id, course.id, currentLesson.id, false, course.lessons.length);
-      } catch (e) {
-        console.error("Error saving progress on close:", e);
-      }
+      } catch (e) {}
     }
     onClose();
   };
@@ -250,9 +256,9 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
           <h3 className="font-display font-black text-[#002D57] tracking-tight uppercase leading-none">{course.title}</h3>
         </div>
         <div className="w-40 h-2 bg-gray-100 rounded-full overflow-hidden">
-          <div 
-            className="h-full bg-[#00A3FF] transition-all duration-500" 
-            style={{ width: `${((currentLessonIdx + (showQuiz ? 1 : 0)) / (course.lessons.length + (course.testConfig ? 1 : 0))) * 100}%` }}
+          <div
+            className="h-full bg-[#00A3FF] transition-all duration-500"
+            style={{ width: `${((currentLessonIdx + (showQuiz ? 1 : 0)) / (course.lessons.length + (hasFinalQuiz ? 1 : 0))) * 100}%` }}
           />
         </div>
       </header>
@@ -266,12 +272,12 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
                 key={lesson.id || idx}
                 onClick={() => handleLessonChange(idx)}
                 className={`w-full flex items-start gap-4 p-5 rounded-3xl text-left transition-all ${
-                  !showQuiz && currentLessonIdx === idx 
+                  quizType === null && currentLessonIdx === idx 
                     ? 'bg-white shadow-xl text-[#002D57] font-bold border border-gray-50' 
                     : 'text-gray-400 opacity-60 hover:opacity-100'
                 }`}
               >
-                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-display font-black text-xs ${!showQuiz && currentLessonIdx === idx ? 'bg-[#002D57] text-white' : 'bg-gray-100'}`}>
+                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-display font-black text-xs ${quizType === null && currentLessonIdx === idx ? 'bg-[#002D57] text-white' : 'bg-gray-100'}`}>
                   {idx + 1}
                 </div>
                 <div className="flex-1 pt-1">
@@ -279,16 +285,16 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
                 </div>
               </button>
             ))}
-            {course.testConfig && (
+            {hasFinalQuiz && (
               <button
-                onClick={() => setShowQuiz(true)}
+                onClick={() => { setSelectedAnswers([]); setQuizType('final'); }}
                 className={`w-full flex items-start gap-4 p-5 rounded-3xl text-left transition-all ${
-                  showQuiz 
-                    ? 'bg-white shadow-xl text-[#002D57] font-bold border border-gray-50' 
+                  quizType === 'final'
+                    ? 'bg-white shadow-xl text-[#002D57] font-bold border border-gray-50'
                     : 'text-gray-400 opacity-60 hover:opacity-100'
                 }`}
               >
-                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${showQuiz ? 'bg-[#00A3FF] text-white' : 'bg-gray-100'}`}>
+                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${quizType === 'final' ? 'bg-[#00A3FF] text-white' : 'bg-gray-100'}`}>
                   <HelpCircle size={14} />
                 </div>
                 <div className="pt-1">
@@ -302,7 +308,7 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
 
         <main className="flex-1 overflow-y-auto p-10 md:p-24 bg-white">
           <AnimatePresence mode="wait">
-            {!showQuiz ? (
+            {quizType === null ? (
               <motion.article 
                 key={currentLesson.id}
                 initial={{ opacity: 0, y: 20 }}
@@ -340,52 +346,59 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
                        {isCompleted ? 'Урок изучен' : 'Завершить изучение урока'}
                      </button>
                      
-                     <button 
-                       onClick={handleNext} 
+                     <button
+                       onClick={handleNext}
                        className="px-10 py-4 bg-ibox-blue text-white rounded-2xl font-bold shadow-lg shadow-ibox-blue/20 hover:bg-ibox-action transition-all text-sm"
                      >
-                       {currentLessonIdx === course.lessons.length - 1 ? 'К итоговому тесту' : 'Далее'}
+                       {currentLessonIdx === course.lessons.length - 1
+                         ? (hasFinalQuiz ? 'К итоговому тесту' : 'Завершить курс')
+                         : 'Далее'}
                      </button>
                    </div>
                 </div>
               </motion.article>
             ) : !quizFinished ? (
-              <motion.div 
+              <motion.div
                 key="quiz"
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 className="max-w-2xl mx-auto py-12"
               >
-                <h2 className="text-4xl font-display font-black uppercase mb-12 text-center">Проверка знаний</h2>
+                <h2 className="text-4xl font-display font-black uppercase mb-4 text-center">
+                  {quizType === 'lesson' ? `Тест: ${course.lessons[currentLessonIdx]?.title}` : 'Итоговый тест'}
+                </h2>
+                {quizType === 'lesson' && (
+                  <p className="text-center text-[10px] font-black uppercase tracking-widest text-gray-400 mb-10">Проверка по уроку</p>
+                )}
                 <div className="space-y-12">
-                  {course.testConfig?.questions.map((q, qIdx) => (
+                  {activeQuestions.map((q, qIdx) => (
                     <div key={qIdx} className="space-y-6">
-                       <p className="text-xl font-display font-black uppercase tracking-tight text-[#002D57]">{qIdx + 1}. {q.question}</p>
-                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                         {q.options.map((opt, oIdx) => (
-                           <button 
-                             key={oIdx}
-                             onClick={() => { const a = [...selectedAnswers]; a[qIdx] = oIdx; setSelectedAnswers(a); }}
-                             className={`p-6 rounded-[32px] text-left font-bold border-2 transition-all group ${selectedAnswers[qIdx] === oIdx ? 'bg-[#002D57] border-[#002D57] text-white shadow-xl' : 'bg-[#F5F7FA] border-[#F5F7FA] hover:border-gray-200'}`}
-                           >
-                             <div className="flex items-center gap-4">
-                                <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-display text-xs ${selectedAnswers[qIdx] === oIdx ? 'bg-white/10' : 'bg-white shadow-sm'}`}>
-                                   {String.fromCharCode(65 + oIdx)}
-                                </div>
-                                <span className="text-sm">{opt}</span>
-                             </div>
-                           </button>
-                         ))}
-                       </div>
+                      <p className="text-xl font-display font-black uppercase tracking-tight text-[#002D57]">{qIdx + 1}. {q.question}</p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {q.options.map((opt, oIdx) => (
+                          <button
+                            key={oIdx}
+                            onClick={() => { const a = [...selectedAnswers]; a[qIdx] = oIdx; setSelectedAnswers(a); }}
+                            className={`p-6 rounded-[32px] text-left font-bold border-2 transition-all group ${selectedAnswers[qIdx] === oIdx ? 'bg-[#002D57] border-[#002D57] text-white shadow-xl' : 'bg-[#F5F7FA] border-[#F5F7FA] hover:border-gray-200'}`}
+                          >
+                            <div className="flex items-center gap-4">
+                              <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-display text-xs ${selectedAnswers[qIdx] === oIdx ? 'bg-white/10' : 'bg-white shadow-sm'}`}>
+                                {String.fromCharCode(65 + oIdx)}
+                              </div>
+                              <span className="text-sm">{opt}</span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   ))}
                 </div>
-                <button 
+                <button
                   onClick={handleQuizSubmit}
-                  disabled={selectedAnswers.length < (course.testConfig?.questions.length || 0)}
+                  disabled={selectedAnswers.length < activeQuestions.length}
                   className="w-full mt-20 py-8 bg-[#002D57] text-white rounded-[40px] font-display font-black uppercase tracking-[0.2em] shadow-2xl disabled:opacity-30 hover:bg-[#00A3FF] transition-all"
                 >
-                  Завершить курс и отправить результат
+                  {quizType === 'lesson' ? 'Продолжить' : 'Завершить курс и отправить результат'}
                 </button>
               </motion.div>
             ) : (
@@ -404,7 +417,7 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
                 <div className="flex flex-col gap-4">
                   <button onClick={onClose} className="w-full py-6 bg-[#002D57] text-white rounded-3xl font-display font-black uppercase tracking-widest shadow-xl">В личный кабинет</button>
                   {score < 80 && (
-                    <button onClick={() => { setQuizFinished(false); setSelectedAnswers([]); setShowQuiz(false); setCurrentLessonIdx(0); }} className="w-full py-6 border-2 border-gray-100 rounded-3xl font-display font-black uppercase tracking-widest text-gray-400 hover:text-[#002D57] transition-all">Пройти заново</button>
+                    <button onClick={() => { setQuizFinished(false); setSelectedAnswers([]); setQuizType(null); setCurrentLessonIdx(0); }} className="w-full py-6 border-2 border-gray-100 rounded-3xl font-display font-black uppercase tracking-widest text-gray-400 hover:text-[#002D57] transition-all">Пройти заново</button>
                   )}
                 </div>
               </motion.div>

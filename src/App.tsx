@@ -13,8 +13,9 @@ import AuthView from './components/AuthView';
 import { bitrixService } from './services/bitrixService';
 import { UserProfile, Course, CourseResult, GlossaryTerm } from './types';
 import { contentService } from './services/contentService';
-import { auth } from './lib/firebase';
+import { auth, db } from './lib/firebase';
 import { signInAnonymously, signInWithCustomToken } from 'firebase/auth';
+import { doc, setDoc } from 'firebase/firestore';
 
 // ─── Bitrix24 auto-login ──────────────────────────────────────────────────────
 // Returns a Firebase user after signing in via Bitrix token (custom token),
@@ -212,6 +213,14 @@ export default function App() {
             const syncedUser = await syncUserSession(currentProfile, firebaseUser);
             setUser(syncedUser);
             localStorage.setItem('academy_user', JSON.stringify(syncedUser));
+
+            // Bootstrap role doc in Firestore so security rules can recognize admin/manager.
+            // isOwner rule allows any authenticated user to write their own roles/{uid} document.
+            if (syncedUser.role === 'admin' || syncedUser.role === 'manager') {
+              try {
+                await setDoc(doc(db, 'roles', firebaseUser.uid), { role: syncedUser.role }, { merge: true });
+              } catch (_) {}
+            }
 
             if (syncedUser.role === 'admin' || syncedUser.role === 'manager') {
               contentService.getAllUsers().then(setUsers);

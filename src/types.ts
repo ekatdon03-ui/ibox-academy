@@ -2,8 +2,9 @@ export interface Lesson {
   id: string;
   title: string;
   content: string;
-  fileUrl?: string; // Attachment for the specific lesson
-  aiKnowledge?: string; // Extracted data from AI (not visible to student)
+  fileUrl?: string;
+  aiKnowledge?: string;
+  testConfig?: TestConfig; // Optional per-lesson test shown after the lesson
 }
 
 export interface QuizQuestion {
@@ -25,11 +26,13 @@ export interface Course {
   thumbnail: string;
   lessons: Lesson[];
   testConfig: TestConfig;
-  isPublic?: boolean; // Access for all
-  fileUrl?: string; // For uploaded PDF/MP4
+  isPublic?: boolean;
+  fileUrl?: string;
   type?: 'presentation' | 'video' | 'scorm';
-  hiddenFromUsers?: boolean; // Global hide
-  assignedToUsers?: string[]; // IDs of users who can see this course if limited
+  hiddenFromUsers?: boolean;
+  assignedToUsers?: string[];
+  hasSimulator?: boolean; // Whether AI simulator is available for this course (default: true)
+  testMode?: 'none' | 'final' | 'per_lesson' | 'both'; // When quizzes appear (default: 'final')
 }
 
 export interface SimulatorSession {
