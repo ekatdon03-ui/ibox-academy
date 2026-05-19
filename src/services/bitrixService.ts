@@ -36,10 +36,8 @@ class BitrixService {
           bx.init(() => {
             // Signal installation complete so Bitrix doesn't show the install screen
             try {
-              if (typeof bx.isAdmin === 'function' && bx.isAdmin()) {
-                if (typeof bx.installFinish === 'function') {
-                  bx.installFinish();
-                }
+              if (typeof bx.installFinish === 'function') {
+                bx.installFinish();
               }
             } catch (_) {}
 

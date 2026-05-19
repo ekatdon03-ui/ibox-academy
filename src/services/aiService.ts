@@ -70,6 +70,9 @@ async function geminiPost(modelPath: string, body: object, attempt = 0): Promise
       await new Promise(r => setTimeout(r, delay));
       return geminiPost(modelPath, body, attempt + 1);
     }
+    if (resp.status === 403) {
+      throw new Error('API ключ Gemini недействителен или заблокирован. Администратору необходимо создать новый ключ на aistudio.google.com и обновить его на сервере.');
+    }
     const text = await resp.text();
     throw new Error(`Gemini ${resp.status}: ${text.slice(0, 400)}`);
   }
