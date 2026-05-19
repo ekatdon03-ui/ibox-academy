@@ -34,15 +34,24 @@ class BitrixService {
         const bx = (window as any).BX24;
         if (bx) {
           bx.init(() => {
-            // Expand frame to full screen width; keep current height unchanged
+            // Signal installation complete so Bitrix doesn't show the install screen
+            try {
+              if (typeof bx.isAdmin === 'function' && bx.isAdmin()) {
+                if (typeof bx.installFinish === 'function') {
+                  bx.installFinish();
+                }
+              }
+            } catch (_) {}
+
+            // Expand frame to full screen width
             try {
               const w = window.screen.availWidth || window.outerWidth || 1920;
-              bx.resizeWindow(w, 0); // height=0 means don't change height
+              bx.resizeWindow(w, 0);
             } catch (_) {}
+
             resolve();
           });
         } else if (attempt < 20) {
-          // retry every 250ms up to 5 seconds
           setTimeout(() => tryInit(attempt + 1), 250);
         } else {
           console.warn("BX24 SDK not found after waiting. Standalone mode.");

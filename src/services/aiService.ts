@@ -1,8 +1,8 @@
 const TEXT_MODEL = "gemini-2.5-flash";
 
 // ─── Rate limiter ─────────────────────────────────────────────────────────────
-// Max 6 requests per 60 seconds per browser session
-const RATE_LIMIT = 6;
+// Max 20 requests per 60 seconds per browser session
+const RATE_LIMIT = 20;
 const RATE_WINDOW_MS = 60_000;
 const requestTimestamps: number[] = [];
 
@@ -44,7 +44,8 @@ function trimResponse(text: string): string {
   return paragraphs.slice(0, 3).join('\n\n');
 }
 
-const BREVITY_RULE = `\nВАЖНО: Отвечай СТРОГО в пределах 2-3 абзацев, не более 150 слов. Краткость — приоритет.`;
+// Used only for the assistant, not the simulator tutor
+const BREVITY_RULE = `\nВАЖНО: Отвечай кратко и по делу, не более 300 слов.`;
 
 // ─── Core fetch helper ────────────────────────────────────────────────────────
 async function geminiPost(modelPath: string, body: object, attempt = 0): Promise<any> {
@@ -136,11 +137,10 @@ export const aiService = {
 4. Если ученик ошибается — указывай на ошибку кратко и жди исправления.
 5. В конце успешной тренировки обязательно напиши слово: SUCCESS.
 6. Не пиши SUCCESS, пока ответ не будет правильным.`)
-      + BREVITY_RULE
       + `\n\nКОНТЕКСТ КУРСА:\n${cleanCont}`;
 
-    const text = await chatSend(message, history, system, 200);
-    return trimResponse(text);
+    // 1024 tokens — enough for full simulator dialogue turns
+    return await chatSend(message, history, system, 1024);
   },
 
   async smartAssistant(question: string, context: string, history: any[] = [], customPrompt?: string) {
@@ -155,7 +155,7 @@ export const aiService = {
       + BREVITY_RULE
       + `\n\nБАЗА ЗНАНИЙ:\n${cleanCont}`;
 
-    const text = await chatSend(question, history, system, 200);
+    const text = await chatSend(question, history, system, 600);
     return trimResponse(text);
   },
 
