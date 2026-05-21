@@ -130,17 +130,20 @@ async function chatSend(message: string, history: any[], systemInstruction: stri
 export const aiService = {
   async trainingTutor(message: string, courseContext: string, history: any[] = [], customPrompt?: string) {
     const cleanCont = cleanContext(courseContext).substring(0, 20000);
-    const system = (customPrompt || `Ты — Эксперт-наставник iBOX Academy.
-Твоя задача: проводить реалистичные симуляции и тренировки сотрудников.
+    // customPrompt is the persona/style — critical system rules are always appended
+    const persona = customPrompt?.trim() || `Ты — Эксперт-наставник iBOX Academy.
+Твоя задача: проводить реалистичные симуляции и тренировки сотрудников.`;
+    const system = persona + `
 
-ПРАВИЛА ТРЕНИРОВКИ:
+ПРАВИЛА ТРЕНИРОВКИ (ОБЯЗАТЕЛЬНЫЕ, НЕ МЕНЯТЬ):
 1. ИСПОЛЬЗУЙ ТОЛЬКО ЗНАНИЯ ИЗ ПРЕДОСТАВЛЕННОГО КОНТЕКСТА.
 2. Не используй общие знания о мире — только материалы курса.
 3. Создавай одну конкретную рабочую ситуацию за раз.
 4. Если ученик ошибается — указывай на ошибку кратко и жди исправления.
 5. В конце успешной тренировки обязательно напиши слово: SUCCESS.
-6. Не пиши SUCCESS, пока ответ не будет правильным.`)
-      + `\n\nКОНТЕКСТ КУРСА:\n${cleanCont}`;
+6. Не пиши SUCCESS, пока ответ не будет правильным.
+
+КОНТЕКСТ КУРСА:\n${cleanCont}`;
 
     // 1024 tokens — enough for full simulator dialogue turns
     return await chatSend(message, history, system, 1024);
@@ -148,13 +151,15 @@ export const aiService = {
 
   async smartAssistant(question: string, context: string, history: any[] = [], customPrompt?: string) {
     const cleanCont = cleanContext(context).substring(0, 20000);
-    const system = (customPrompt || `Ты — Smart Assistant Академии iBOX. Отвечай только по базе знаний ниже.
+    // customPrompt is the persona/style — core rules always appended
+    const persona = customPrompt?.trim() || `Ты — Smart Assistant Академии iBOX. Отвечай только по базе знаний ниже.`;
+    const system = persona + `
 
-ПРАВИЛА:
+ПРАВИЛА (ОБЯЗАТЕЛЬНЫЕ):
 1. Отвечай строго по предоставленным материалам.
 2. Если ответа нет — скажи: "Информации по этому вопросу нет в материалах Академии."
 3. Не отвечай на вопросы, не связанные с обучением iBOX.
-4. Используй Markdown для оформления.`)
+4. Используй Markdown для оформления.`
       + BREVITY_RULE
       + `\n\nБАЗА ЗНАНИЙ:\n${cleanCont}`;
 

@@ -194,7 +194,8 @@ export const contentService = {
   },
 
   async saveAISettings(settings: AISettings): Promise<void> {
-    await setDoc(doc(db, SETTINGS_COLLECTION, 'ai_prompts'), settings);
+    const ok = await tryServerAdmin('set', { collection: SETTINGS_COLLECTION, docId: 'ai_prompts', data: settings });
+    if (ok === null) await setDoc(doc(db, SETTINGS_COLLECTION, 'ai_prompts'), settings);
   },
 
   async getAllCourses(): Promise<Course[]> {
