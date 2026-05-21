@@ -411,10 +411,14 @@ export const contentService = {
     const activeAuth = authUser || auth.currentUser;
     if (!profile.id || !activeAuth) return;
     try {
-      await setDoc(doc(db, USERS_COLLECTION, profile.id), profile, { merge: true });
+      // Try server admin first — works even when auth UID ≠ profile ID (anonymous fallback)
+      const ok = await tryServerAdmin('set', { collection: USERS_COLLECTION, docId: profile.id, data: profile, merge: true });
+      if (ok === null) {
+        // Fallback: direct Firestore write (works when isOwner matches)
+        await setDoc(doc(db, USERS_COLLECTION, profile.id), profile, { merge: true });
+      }
     } catch (e) {
       console.error("Failed to save profile:", e);
-      handleFirestoreError(e, OperationType.WRITE, USERS_COLLECTION);
     }
   },
 

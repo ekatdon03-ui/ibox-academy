@@ -18,8 +18,12 @@ import { signInAnonymously, signInWithCustomToken } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
 
 // ─── Bitrix24 auto-login ──────────────────────────────────────────────────────
-// Returns a Firebase user after signing in via Bitrix token (custom token),
-// or falls back to anonymous auth so Firestore rules still work.
+// Signs in via Bitrix custom token (or anonymous fallback).
+// Returns the profile data from the server so onAuthStateChanged can use it
+// directly — without needing to read from Firestore (which would fail for
+// anonymous users whose auth UID ≠ bitrix_XXX profile ID).
+let _pendingBxProfile: any = null; // shared between doBitrixAuth → onAuthStateChanged
+
 async function doBitrixAuth(): Promise<void> {
   try {
     const BX24 = (window as any).BX24;
@@ -39,10 +43,11 @@ async function doBitrixAuth(): Promise<void> {
     });
 
     if (resp.ok) {
-      const { customToken } = await resp.json();
-      await signInWithCustomToken(auth, customToken);
+      const data = await resp.json();
+      // Store server-side profile so auth listener can use it without Firestore read
+      if (data.profile) _pendingBxProfile = data.profile;
+      await signInWithCustomToken(auth, data.customToken);
     } else {
-      // Server not configured with service account yet — use anonymous as fallback
       console.warn('Custom token auth failed, using anonymous');
       await signInAnonymously(auth);
     }
@@ -147,38 +152,59 @@ export default function App() {
           // ── Bitrix24 context: enrich profile with Bitrix data ──
           if (bitrixService.isAvailable()) {
             try {
-              const bxUser = await bitrixService.getCurrentUser();
+              // Consume the server-side profile captured in doBitrixAuth
+              const serverProfile = _pendingBxProfile;
+              _pendingBxProfile = null;
 
-              if (bxUser) {
-                // Always use canonical Bitrix ID — prevents duplicate accounts
-                // when custom token auth falls back to anonymous
-                const canonicalId = `bitrix_${bxUser.ID}`;
-                const dbProfile = await contentService.resolveUserProfile(canonicalId);
+              // Get Bitrix user ID — prefer from server profile, fallback to BX24 SDK
+              let bxId: string | null = serverProfile?.bitrixId || null;
+              let bxUser: any = null;
+              if (!bxId) {
+                bxUser = await bitrixService.getCurrentUser();
+                bxId = bxUser ? String(bxUser.ID) : null;
+              }
+
+              if (bxId) {
+                const canonicalId = `bitrix_${bxId}`;
+
+                // Try to load existing Firestore profile (works when auth UID = canonical ID)
+                let dbProfile: UserProfile | null = null;
+                try { dbProfile = await contentService.resolveUserProfile(canonicalId); } catch (_) {}
 
                 if (dbProfile) {
-                  // Profile already exists — load it, don't overwrite
+                  // Profile already exists — use it (preserves assignedCourses etc.)
                   currentProfile = dbProfile;
                 } else {
-                  // First login — create profile once
+                  // First login — build profile from server data or BX24 SDK
                   let deptName = 'Общий отдел';
-                  if (bxUser.UF_DEPARTMENT?.[0]) {
+
+                  if (serverProfile?.departmentIds?.[0]) {
+                    try {
+                      const depts = await bitrixService.getDepartments();
+                      const dept = depts.find((d: any) => String(d.ID) === String(serverProfile.departmentIds[0]));
+                      if (dept) deptName = dept.NAME;
+                    } catch (_) {}
+                  } else if (bxUser?.UF_DEPARTMENT?.[0]) {
                     try {
                       const depts = await bitrixService.getDepartments();
                       const dept = depts.find((d: any) => String(d.ID) === String(bxUser.UF_DEPARTMENT[0]));
                       if (dept) deptName = dept.NAME;
                     } catch (_) {}
                   }
+
                   currentProfile = {
                     id: canonicalId,
-                    bitrixId: String(bxUser.ID),
-                    name: `${bxUser.NAME || ''} ${bxUser.LAST_NAME || ''}`.trim() || 'Сотрудник',
-                    email: bxUser.EMAIL || firebaseUser.email || '',
-                    position: bxUser.WORK_POSITION || 'Сотрудник iBOX',
-                    avatar: bxUser.PERSONAL_PHOTO || '',
-                    role: bxUser.IS_ADMIN ? 'admin' : 'employee',
+                    bitrixId: bxId,
+                    name: serverProfile?.name || (bxUser ? `${bxUser.NAME || ''} ${bxUser.LAST_NAME || ''}`.trim() : '') || 'Сотрудник',
+                    email: serverProfile?.email || bxUser?.EMAIL || firebaseUser.email || '',
+                    position: serverProfile?.position || bxUser?.WORK_POSITION || 'Сотрудник iBOX',
+                    avatar: serverProfile?.avatar || bxUser?.PERSONAL_PHOTO || '',
+                    role: (serverProfile?.isAdmin || bxUser?.IS_ADMIN) ? 'admin' : 'employee',
                     department: deptName,
                     assignedCourses: []
                   };
+
+                  // Save profile — try server admin first (works even if auth UID ≠ profile ID)
                   await contentService.saveProfile(currentProfile, firebaseUser);
                 }
               }
