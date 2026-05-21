@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Course, UserProfile, UserCourseProgress, CourseResult } from '../types';
-import { Play, Target, Star } from 'lucide-react';
+import { Play, Trophy, Target, Star } from 'lucide-react';
 import { motion } from 'motion/react';
 import { contentService } from '../services/contentService';
 
