@@ -19,25 +19,6 @@ export interface AISettings {
 
 const PROGRESS_COLLECTION = 'progress';
 
-/**
- * Система начисления XP (Experience Points) iBOX Academy:
- * 
- * 1. Изучение урока (LESSON): +10 XP
- *    Дается за нажатие кнопки "Урок изучен" или при переходе к следующему уроку.
- * 
- * 2. Итоговый тест (QUIZ): +50 XP
- *    Начисляется при успешном прохождении теста курса (минимум 80% правильных ответов).
- * 
- * 3. Тренажер/Симулятор (SIMULATOR): +100 XP
- *    Начисляется за завершение полноценной тренировочной сессии с ИИ-наставником.
- * 
- * XP суммируется в профиле пользователя и определяет его позицию в рейтинге.
- */
-export const XP_REWARDS = {
-  LESSON: 10,
-  QUIZ: 50,
-  SIMULATOR: 30
-};
 
 // Server-side admin bypass — used when Firestore rules block the operation.
 // Returns null if the server endpoint is unavailable (fall through to client SDK).
@@ -60,31 +41,8 @@ async function tryServerAdmin(operation: string, params: any): Promise<any> {
 
 export const contentService = {
   async saveSimulatorSession(session: any) {
-    // Award XP ONLY if score is high (e.g., > 70) 
-    // AND user has not reached the limit (5 per lesson)
-    let pointsAwarded = 0;
-    if (session.userId && session.score >= 70) {
-      const userRef = doc(db, USERS_COLLECTION, session.userId);
-      const userSnap = await getDoc(userRef);
-      if (userSnap.exists()) {
-        const userData = userSnap.data();
-        const attempts = userData.simulatorAttempts || {};
-        const count = attempts[session.lessonId || 'global'] || 0;
-
-        if (count < 5) {
-          pointsAwarded = XP_REWARDS.SIMULATOR;
-          const newAttempts = { ...attempts, [session.lessonId || 'global']: count + 1 };
-          await updateDoc(userRef, { 
-            score: (userData.score || 0) + pointsAwarded,
-            simulatorAttempts: newAttempts
-          });
-        }
-      }
-    }
-    
     return await addDoc(collection(db, SIMULATOR_COLLECTION), {
       ...session,
-      pointsAwarded,
       createdAt: serverTimestamp()
     });
   },
@@ -131,18 +89,6 @@ export const contentService = {
       });
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, RESULTS_COLLECTION);
-    }
-  },
-
-  async updateUserScore(userId: string, points: number): Promise<void> {
-    try {
-      const userRef = doc(db, USERS_COLLECTION, userId);
-      const userSnap = await getDoc(userRef);
-      if (userSnap.exists()) {
-        await updateDoc(userRef, { score: (userSnap.data().score || 0) + points });
-      }
-    } catch (e) {
-      handleFirestoreError(e, OperationType.UPDATE, USERS_COLLECTION);
     }
   },
 

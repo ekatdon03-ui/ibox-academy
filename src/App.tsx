@@ -171,7 +171,6 @@ export default function App() {
                   position: bxUser.WORK_POSITION || dbProfile?.position || 'Сотрудник iBOX',
                   avatar: bxUser.PERSONAL_PHOTO || dbProfile?.avatar || '',
                   role: bxUser.IS_ADMIN ? 'admin' : (dbProfile?.role as any || 'employee'),
-                  score: dbProfile?.score ?? 0,
                   department: deptName,
                   assignedCourses: dbProfile?.assignedCourses || []
                 };
@@ -202,7 +201,6 @@ export default function App() {
                 position: 'Сотрудник iBOX',
                 role: 'employee',
                 avatar: firebaseUser.photoURL || '',
-                score: 0,
                 department: 'Общий отдел',
                 assignedCourses: []
               };

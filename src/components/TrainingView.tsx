@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Course, UserProfile, UserCourseProgress, CourseResult } from '../types';
-import { Play, Clock, ChevronRight, Zap, Trophy, Target, Star } from 'lucide-react';
+import { Play, Trophy, Target, Star } from 'lucide-react';
 import { motion } from 'motion/react';
 import { contentService } from '../services/contentService';
 
@@ -96,11 +96,11 @@ export default function TrainingView({ courses, user, onSelectCourse, refreshTri
              </div>
              <div className="bg-[#002D57] p-8 rounded-[40px] shadow-xl flex items-center gap-6">
                 <div className="w-16 h-16 bg-white/10 rounded-3xl flex items-center justify-center text-white">
-                   <Zap size={28} />
+                   <Trophy size={28} />
                 </div>
                 <div>
-                   <p className="text-3xl font-display font-black text-white">{user.score}</p>
-                   <p className="text-[10px] font-black uppercase tracking-widest text-white/40">Ваш рейтинг (XP)</p>
+                   <p className="text-3xl font-display font-black text-white">{Object.keys(progressMap).filter(k => progressMap[k]?.status === 'completed').length}</p>
+                   <p className="text-[10px] font-black uppercase tracking-widest text-white/40">Курсов завершено</p>
                 </div>
              </div>
           </div>

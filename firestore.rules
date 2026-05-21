@@ -44,18 +44,8 @@ service cloud.firestore {
 
     // ── COURSES ──────────────────────────────────────────────────────────
     match /courses/{courseId} {
-      allow read: if isSignedIn() && (
-        isAdmin() ||
-        !(resource.data.get('hiddenFromUsers', false) == true) && (
-          resource.data.get('isPublic', false) == true ||
-          (resource.data.get('assignedToUsers', []) is list &&
-           request.auth.uid in resource.data.get('assignedToUsers', [])) ||
-          (resource.data.get('assignedToDepartments', []) is list &&
-           resource.data.get('assignedToDepartments', []).size() > 0 &&
-           exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('department', '') in resource.data.get('assignedToDepartments', []))
-        )
-      );
+      // All signed-in users can read; visibility filtering is done client-side
+      allow read: if isSignedIn();
       allow write: if isAdmin();
     }
 
@@ -65,7 +55,7 @@ service cloud.firestore {
       allow create: if isOwner(userId) || isAdmin();
       allow update: if isAdmin() ||
         (isOwner(userId) && request.resource.data.diff(resource.data)
-          .affectedKeys().hasOnly(['name','email','position','department','score','assignedCourses']));
+          .affectedKeys().hasOnly(['name','email','position','department','assignedCourses']));
     }
 
     // ── NOTIFICATIONS ─────────────────────────────────────────────────────

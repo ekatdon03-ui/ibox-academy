@@ -3,7 +3,7 @@ import { ChevronLeft, CheckCircle, HelpCircle, Trophy, X, Zap, ExternalLink } fr
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 import { Course, UserProfile } from '../types';
-import { contentService, XP_REWARDS } from '../services/contentService';
+import { contentService } from '../services/contentService';
 
 interface CoursePlayerProps {
   course: Course;
@@ -82,8 +82,7 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
   const handleMarkAsDone = async () => {
     if (user.id && course.id && currentLesson) {
       try {
-        const { firstCompletion } = await contentService.updateLessonProgress(user.id, course.id, currentLesson.id, true, course.lessons.length);
-        if (firstCompletion) await contentService.updateUserScore(user.id, XP_REWARDS.LESSON);
+        await contentService.updateLessonProgress(user.id, course.id, currentLesson.id, true, course.lessons.length);
         setIsCompleted(true);
       } catch (e) {}
     }
@@ -143,12 +142,7 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
     );
   };
 
-  const handleLessonChange = async (idx: number) => {
-    if (quizType === null && user.id && course.id && currentLesson) {
-      try {
-        await contentService.updateLessonProgress(user.id, course.id, currentLesson.id, true, course.lessons.length);
-      } catch (e) {}
-    }
+  const handleLessonChange = (idx: number) => {
     setCurrentLessonIdx(idx);
     setQuizType(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -158,7 +152,6 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
     try {
       if (user.id && course.id) {
         await contentService.saveResult({ userId: user.id, courseId: course.id, score: 100, progress: 100, timestamp: new Date().toISOString() });
-        await contentService.updateUserScore(user.id, XP_REWARDS.QUIZ);
       }
     } catch (e) {}
     onClose();
@@ -167,8 +160,7 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
   const handleNext = async () => {
     try {
       if (user.id && course.id && currentLesson) {
-        const { firstCompletion } = await contentService.updateLessonProgress(user.id, course.id, currentLesson.id, true, course.lessons.length);
-        if (firstCompletion) await contentService.updateUserScore(user.id, XP_REWARDS.LESSON);
+        await contentService.updateLessonProgress(user.id, course.id, currentLesson.id, true, course.lessons.length);
       }
     } catch (e) {}
 
@@ -200,10 +192,6 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
     const finalScore = Math.round((correct / activeQuestions.length) * 100);
 
     if (quizType === 'lesson') {
-      // Per-lesson quiz: award XP for passing (>=80%) and continue
-      if (finalScore >= 80 && user.id) {
-        try { await contentService.updateUserScore(user.id, XP_REWARDS.QUIZ); } catch (_) {}
-      }
       setQuizType(null);
       setSelectedAnswers([]);
       const isLastLesson = currentLessonIdx >= course.lessons.length - 1;
@@ -228,7 +216,6 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
         if (finalScore >= 80) {
           await contentService.updateLessonProgress(user.id, course.id, lastLessonId, true, course.lessons.length);
           await contentService.saveResult({ userId: user.id, courseId: course.id, score: finalScore, progress: 100, timestamp: new Date().toISOString() });
-          await contentService.updateUserScore(user.id, XP_REWARDS.QUIZ);
         } else {
           await contentService.saveResult({ userId: user.id, courseId: course.id, score: finalScore, progress: 50, timestamp: new Date().toISOString() });
         }
@@ -236,12 +223,7 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
     } catch (e) {}
   };
 
-  const handleClose = async () => {
-    if (user.id && course.id && currentLesson && quizType === null) {
-      try {
-        await contentService.updateLessonProgress(user.id, course.id, currentLesson.id, false, course.lessons.length);
-      } catch (e) {}
-    }
+  const handleClose = () => {
     onClose();
   };
 
@@ -417,7 +399,7 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
                 </div>
                 <h2 className="text-6xl font-display font-black uppercase mb-4 tracking-tighter text-[#002D57]">{score}%</h2>
                 <p className="text-xs font-black uppercase tracking-widest text-[#00A3FF] mb-12">{score >= 80 ? 'Курс успешно зачтен' : 'Попробуйте еще раз'}</p>
-                <p className="text-lg font-bold text-gray-400 mb-12 leading-relaxed">{score >= 80 ? 'Вы отлично справились с материалом. Ваши баллы уже зачислены в общий рейтинг.' : 'Для зачета обучения необходимо набрать минимум 80%. Рекомендуем еще раз ознакомиться с уроками.'}</p>
+                <p className="text-lg font-bold text-gray-400 mb-12 leading-relaxed">{score >= 80 ? 'Вы отлично справились с материалом курса!' : 'Для зачета обучения необходимо набрать минимум 80%. Рекомендуем еще раз ознакомиться с уроками.'}</p>
                 <div className="flex flex-col gap-4">
                   <button onClick={onClose} className="w-full py-6 bg-[#002D57] text-white rounded-3xl font-display font-black uppercase tracking-widest shadow-xl">В личный кабинет</button>
                   {score < 80 && (

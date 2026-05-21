@@ -85,12 +85,9 @@ export interface UserProfile {
   name: string;
   position: string;
   role: 'admin' | 'manager' | 'employee';
-  score: number; // Total platform score
   avatar?: string;
   department?: string;
   email?: string;
   bitrixId?: string;
   assignedCourses?: string[]; // IDs of assigned courses
-  points?: number; // Coins / Rewards
-  simulatorAttempts?: Record<string, number>; // lessonId -> count of successful trainings
 }

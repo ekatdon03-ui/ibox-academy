@@ -59,7 +59,7 @@ export default function ProfileView({ user, onLogout, onUpdateUser, courses }: P
   const stats = [
     { label: 'Курсов пройдено', value: results.length.toString(), icon: Star, color: 'text-yellow-500', bg: 'bg-yellow-50' },
     { label: 'Средний балл', value: `${avgScore}%`, icon: Award, color: 'text-[#00A3FF]', bg: 'bg-[#00A3FF]/5' },
-    { label: 'Ваш рейтинг (XP)', value: user.score.toString(), icon: TrendingUp, color: 'text-green-500', bg: 'bg-green-50' },
+    { label: 'ИИ тренировок', value: trainerHistory.length.toString(), icon: TrendingUp, color: 'text-green-500', bg: 'bg-green-50' },
   ];
 
   const handleAvatarSave = () => {
