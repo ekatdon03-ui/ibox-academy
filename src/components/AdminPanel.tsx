@@ -865,10 +865,6 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
                   <p className="text-[10px] font-black uppercase tracking-widest text-[#00A3FF] mt-1">{viewingUserSessions.department} • {viewingUserSessions.position}</p>
                 </div>
                 <div className="flex items-center gap-6">
-                  <div className="text-right">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Общий рейтинг</p>
-                    <p className="text-2xl font-display font-black text-[#002D57]">{viewingUserSessions.score} XP</p>
-                  </div>
                   <button onClick={() => setViewingUserSessions(null)} className="w-10 h-10 bg-gray-50 rounded-xl flex items-center justify-center text-gray-400 hover:text-red-500 transition-all">
                     <X size={20} />
                   </button>

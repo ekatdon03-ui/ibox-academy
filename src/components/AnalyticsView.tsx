@@ -88,14 +88,13 @@ export default function AnalyticsView({ results: initialResults, courses, curren
     // UTF-8 BOM for Excel matching Russian encoding
     const BOM = "\uFEFF";
     const headers = [
-      'ФИО', 
-      'Должность', 
-      'Отдел', 
-      'Назначено курсов', 
-      'Пройдено курсов', 
+      'ФИО',
+      'Должность',
+      'Отдел',
+      'Назначено курсов',
+      'Пройдено курсов',
       'Прогресс %',
-      'Средний балл теста', 
-      'Баллы XP (Всего)', 
+      'Средний балл теста',
       'Детализация по курсам (Название: Балл | Дата)'
     ];
 
@@ -103,13 +102,13 @@ export default function AnalyticsView({ results: initialResults, courses, curren
       const empResults = results.filter(r => r.userId === emp.id);
       const assigned = emp.assignedCourses || [];
       const completedCount = assigned.filter(cid => empResults.some(r => r.courseId === cid)).length;
-      
-      const empAvg = empResults.length > 0 
-        ? Math.round(empResults.reduce((acc, curr) => acc + (curr.score || 0), 0) / empResults.length) 
+
+      const empAvg = empResults.length > 0
+        ? Math.round(empResults.reduce((acc, curr) => acc + (curr.score || 0), 0) / empResults.length)
         : 0;
-      
+
       const progress = assigned.length > 0 ? Math.round((completedCount / assigned.length) * 100) : 0;
-      
+
       const courseDetails = empResults.map(r => {
         const course = courses.find(c => c.id === r.courseId);
         const date = new Date(r.timestamp).toLocaleDateString('ru-RU');
@@ -124,7 +123,6 @@ export default function AnalyticsView({ results: initialResults, courses, curren
         completedCount,
         `${progress}%`,
         `${empAvg}%`,
-        emp.score,
         `"${courseDetails}"`
       ].join(";");
     });
@@ -271,16 +269,20 @@ export default function AnalyticsView({ results: initialResults, courses, curren
             <div className="bg-[#002D57] rounded-[64px] p-12 text-white relative overflow-hidden flex flex-col justify-between">
                <div className="relative z-10">
                  <h3 className="text-2xl font-display font-black uppercase tracking-tight mb-4">Топ сотрудники</h3>
-                 <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#00A3FF]">Рейтинг по баллам</p>
+                 <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#00A3FF]">По числу пройденных курсов</p>
                </div>
                <div className="relative z-10 space-y-6 mt-12">
-                  {[...employees].sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 4).map((emp, i) => (
+                  {[...filteredEmployees].sort((a, b) => {
+                    const aC = results.filter(r => r.userId === a.id).length;
+                    const bC = results.filter(r => r.userId === b.id).length;
+                    return bC - aC;
+                  }).slice(0, 4).map((emp, i) => (
                     <div key={emp.id} className="flex items-center justify-between">
                        <div className="flex items-center gap-4">
                           <span className="text-xs font-black text-white/20">#{i+1}</span>
                           <span className="text-sm font-bold uppercase tracking-tight">{emp.name}</span>
                        </div>
-                       <span className="text-[#00A3FF] font-display font-black">{emp.score}</span>
+                       <span className="text-[#00A3FF] font-display font-black">{results.filter(r => r.userId === emp.id).length}</span>
                     </div>
                   ))}
                </div>
@@ -358,7 +360,7 @@ export default function AnalyticsView({ results: initialResults, courses, curren
                              style={{ width: `${progressPercent}%` }} 
                            />
                         </div>
-                        <span className="text-[8px] font-black uppercase text-gray-300 tracking-widest">{emp.score} XP</span>
+                        <span className="text-[8px] font-black uppercase text-gray-300 tracking-widest">{progressPercent}%</span>
                       </div>
                     </td>
                   </tr>

@@ -147,37 +147,40 @@ export default function App() {
           // ── Bitrix24 context: enrich profile with Bitrix data ──
           if (bitrixService.isAvailable()) {
             try {
-              const [bxUser, dbProfile] = await Promise.all([
-                bitrixService.getCurrentUser(),
-                contentService.resolveUserProfile(firebaseUser.uid)
-              ]);
+              const bxUser = await bitrixService.getCurrentUser();
 
               if (bxUser) {
-                // Get department name
-                let deptName = dbProfile?.department || 'Общий отдел';
-                if (bxUser.UF_DEPARTMENT?.[0]) {
-                  try {
-                    const depts = await bitrixService.getDepartments();
-                    const dept = depts.find((d: any) => String(d.ID) === String(bxUser.UF_DEPARTMENT[0]));
-                    if (dept) deptName = dept.NAME;
-                  } catch (_) {}
-                }
+                // Always use canonical Bitrix ID — prevents duplicate accounts
+                // when custom token auth falls back to anonymous
+                const canonicalId = `bitrix_${bxUser.ID}`;
+                const dbProfile = await contentService.resolveUserProfile(canonicalId);
 
-                currentProfile = {
-                  id: firebaseUser.uid,
-                  bitrixId: String(bxUser.ID),
-                  name: `${bxUser.NAME || ''} ${bxUser.LAST_NAME || ''}`.trim() || dbProfile?.name || 'Сотрудник',
-                  email: bxUser.EMAIL || firebaseUser.email || dbProfile?.email || '',
-                  position: bxUser.WORK_POSITION || dbProfile?.position || 'Сотрудник iBOX',
-                  avatar: bxUser.PERSONAL_PHOTO || dbProfile?.avatar || '',
-                  role: bxUser.IS_ADMIN ? 'admin' : (dbProfile?.role as any || 'employee'),
-                  department: deptName,
-                  assignedCourses: dbProfile?.assignedCourses || []
-                };
-                // Save/update in Firestore
-                await contentService.syncUserProfile(currentProfile);
-              } else {
-                currentProfile = dbProfile;
+                if (dbProfile) {
+                  // Profile already exists — load it, don't overwrite
+                  currentProfile = dbProfile;
+                } else {
+                  // First login — create profile once
+                  let deptName = 'Общий отдел';
+                  if (bxUser.UF_DEPARTMENT?.[0]) {
+                    try {
+                      const depts = await bitrixService.getDepartments();
+                      const dept = depts.find((d: any) => String(d.ID) === String(bxUser.UF_DEPARTMENT[0]));
+                      if (dept) deptName = dept.NAME;
+                    } catch (_) {}
+                  }
+                  currentProfile = {
+                    id: canonicalId,
+                    bitrixId: String(bxUser.ID),
+                    name: `${bxUser.NAME || ''} ${bxUser.LAST_NAME || ''}`.trim() || 'Сотрудник',
+                    email: bxUser.EMAIL || firebaseUser.email || '',
+                    position: bxUser.WORK_POSITION || 'Сотрудник iBOX',
+                    avatar: bxUser.PERSONAL_PHOTO || '',
+                    role: bxUser.IS_ADMIN ? 'admin' : 'employee',
+                    department: deptName,
+                    assignedCourses: []
+                  };
+                  await contentService.saveProfile(currentProfile, firebaseUser);
+                }
               }
             } catch (e) {
               console.warn('Bitrix profile load error:', e);
