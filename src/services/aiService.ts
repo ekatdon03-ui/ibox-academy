@@ -287,35 +287,47 @@ export const aiService = {
       .join('\n');
     const cleanCont = cleanContext(courseContext);
 
-    const schema = {
-      type: "OBJECT",
-      required: ["feedback", "score"],
-      properties: {
-        feedback: { type: "STRING" },
-        score: { type: "INTEGER" }
-      }
-    };
-
     try {
+      // Plain text response — no JSON schema, more reliable
       const text = await generateContent(
-        `Ты — строгий эксперт iBOX Academy. Оцени диалог сотрудника в тренажере.\n\nКРИТЕРИИ (сумма 100 баллов):\n1. Точность знания материалов курса (0-50).\n2. Умение работать с возражениями без выдумок (0-30).\n3. Профессионализм и грамотность речи (0-20).\n\nКОНТЕКСТ КУРСА:\n${cleanCont.substring(0, 3000)}\n\nДИАЛОГ:\n${historyText}\n\nВерни JSON с полями:\n- score: число от 0 до 100\n- feedback: 2-3 предложения на русском с конкретным разбором — что сделано хорошо и что стоит улучшить.`,
-        { mimeType: 'application/json', schema, maxTokens: 512 }
+        `Ты — строгий эксперт iBOX Academy. Оцени качество ответов сотрудника в тренажере.
+
+КРИТЕРИИ оценки (итого 100 баллов):
+1. Точность знания материалов курса (0–50 баллов)
+2. Умение работать с возражениями без выдумок (0–30 баллов)
+3. Профессионализм и грамотность (0–20 баллов)
+
+КОНТЕКСТ КУРСА:
+${cleanCont.substring(0, 3000)}
+
+ДИАЛОГ ТРЕНИРОВКИ:
+${historyText}
+
+Ответь строго в таком формате (без лишнего текста):
+ОЦЕНКА: [число от 0 до 100]
+ФИДБЕК: [2-3 предложения на русском — что сделано хорошо и что стоит улучшить]`,
+        { maxTokens: 400, temp: 0.3 }
       );
 
-      // Try to parse JSON, extract from markdown if needed
-      const clean = text.trim().replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
-      const parsed = JSON.parse(clean);
-      return {
-        score: Math.max(0, Math.min(100, Number(parsed.score) || 0)),
-        feedback: String(parsed.feedback || 'Тренировка завершена.')
-      };
+      // Parse score with regex
+      const scoreMatch = text.match(/ОЦЕНКА:\s*(\d+)/i);
+      const feedbackMatch = text.match(/ФИДБЕК:\s*(.+)/is);
+
+      const score = scoreMatch ? Math.max(0, Math.min(100, parseInt(scoreMatch[1]))) : null;
+      const feedback = feedbackMatch ? feedbackMatch[1].trim() : null;
+
+      if (score !== null && feedback) {
+        return { score, feedback };
+      }
+
+      // If format didn't match — try to extract any number and use rest as feedback
+      const anyNumber = text.match(/\b(\d{1,3})\b/);
+      const fallbackScore = anyNumber ? Math.max(0, Math.min(100, parseInt(anyNumber[1]))) : 75;
+      return { score: fallbackScore, feedback: text.replace(/\d+\s*(баллов|из\s*100)?/gi, '').trim().slice(0, 300) || 'Тренировка завершена.' };
+
     } catch (e) {
       console.error('Evaluation failed:', e);
-      // Fallback — don't crash the session
-      return {
-        score: 70,
-        feedback: 'Тренировка завершена. Оценка временно недоступна — результат сохранён.'
-      };
+      return { score: 0, feedback: 'Не удалось получить оценку от ИИ. Проверьте подключение и попробуйте снова.' };
     }
   },
 

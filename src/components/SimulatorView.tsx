@@ -349,11 +349,6 @@ export default function SimulatorView({ courses, user, onRefreshUser }: Simulato
                   </button>
                 </div>
                 
-                {evaluation && evaluation.score >= 70 && (
-                  <p className="mt-8 text-[10px] font-black uppercase tracking-[0.3em] opacity-50">
-                    +30 XP начислено за отработку
-                  </p>
-                )}
               </motion.div>
             )}
           </AnimatePresence>
