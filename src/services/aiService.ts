@@ -282,55 +282,80 @@ export const aiService = {
   },
 
   async evaluateSimulatorSession(chatHistory: any[], courseContext: string) {
+    // Separate user turns from AI turns for analysis
+    const userTurns = chatHistory.filter(m => m.role === 'user');
     const historyText = chatHistory
-      .map(m => `${m.role}: ${Array.isArray(m.parts) ? m.parts[0]?.text : m.parts}`)
-      .join('\n');
+      .map(m => {
+        const role = m.role === 'user' ? 'СОТРУДНИК' : 'НАСТАВНИК';
+        const text = Array.isArray(m.parts) ? m.parts[0]?.text : String(m.parts ?? '');
+        return `${role}: ${text}`;
+      })
+      .join('\n\n');
     const cleanCont = cleanContext(courseContext);
 
+    // If no user responses at all — return 0 immediately without calling AI
+    if (userTurns.length === 0) {
+      return { score: 0, feedback: 'Сотрудник не дал ни одного ответа. Необходимо пройти тренировку повторно.' };
+    }
+
     try {
-      // Plain text response — no JSON schema, more reliable
       const text = await generateContent(
-        `Ты — строгий эксперт iBOX Academy. Оцени качество ответов сотрудника в тренажере.
+        `Ты — строгий эксперт-оценщик iBOX Academy. Твоя задача — честно и объективно оценить ответы СОТРУДНИКА в диалоге тренировки.
 
-КРИТЕРИИ оценки (итого 100 баллов):
-1. Точность знания материалов курса (0–50 баллов)
-2. Умение работать с возражениями без выдумок (0–30 баллов)
-3. Профессионализм и грамотность (0–20 баллов)
+ПРАВИЛА ОЦЕНКИ (обязательные):
+1. Оценивай ТОЛЬКО реплики СОТРУДНИКА, не НАСТАВНИКА.
+2. Если сотрудник не ответил на вопрос / написал "не знаю" / ответил нерелевантно — это ОШИБКА, снижай оценку на 20 баллов за каждый такой ответ.
+3. Если ответ противоречит материалам курса — снижай на 15 баллов.
+4. Если ответ очень короткий (1-2 слова) без объяснения — снижай на 10 баллов.
+5. Начинай с 100 баллов и вычитай за ошибки. Прибавлять нельзя.
+6. Итоговая оценка должна ОТРАЖАТЬ реальное качество ответов, не завышай.
 
-КОНТЕКСТ КУРСА:
+ШКАЛА:
+90-100: Все ответы точные, полные, по материалам курса
+70-89: В основном правильно, небольшие неточности
+50-69: Частично верно, есть существенные пробелы
+30-49: Много ошибок или пустых ответов
+0-29: Ответы отсутствуют или полностью неверны
+
+МАТЕРИАЛЫ КУРСА (для проверки правильности ответов):
 ${cleanCont.substring(0, 4000)}
 
 ДИАЛОГ ТРЕНИРОВКИ:
 ${historyText}
 
-Ответь строго в таком формате (без лишнего текста):
-ОЦЕНКА: [число от 0 до 100]
-ФИДБЕК: [2-3 предложения на русском — что сделано хорошо и что стоит улучшить]`,
-        { maxTokens: 1024, temp: 0.3 }
+Ответь строго в формате (две строки, без отступов, без лишнего текста):
+ОЦЕНКА: [число 0-100]
+ФИДБЕК: [ровно 2 предложения на русском: 1-е что сделано хорошо или какая ошибка, 2-е что конкретно улучшить]`,
+        { maxTokens: 300, temp: 0.1 }
       );
 
-      // Strip label prefixes from any text chunk
+      // Strip label prefixes from text
       const stripLabels = (t: string) => t
         .replace(/ОЦЕНКА:\s*\d*\s*/gi, '')
         .replace(/ФИДБЕК:\s*/gi, '')
-        .replace(/^\s*[-–:]+\s*/gm, '')
         .trim();
 
-      // Parse score with regex
+      // Limit to 2 sentences max to prevent overflow
+      const toTwoSentences = (t: string) => {
+        const clean = stripLabels(t);
+        const sentences = clean.match(/[^.!?]*[.!?]+/g) || [clean];
+        return sentences.slice(0, 2).join(' ').trim() || clean.slice(0, 220).trim();
+      };
+
       const scoreMatch = text.match(/ОЦЕНКА:\s*(\d+)/i);
       const feedbackMatch = text.match(/ФИДБЕК:\s*([\s\S]+)/i);
 
       const score = scoreMatch ? Math.max(0, Math.min(100, parseInt(scoreMatch[1]))) : null;
-      const feedback = feedbackMatch ? feedbackMatch[1].trim() : null;
+      const feedback = feedbackMatch ? toTwoSentences(feedbackMatch[1]) : null;
 
       if (score !== null && feedback) {
-        return { score, feedback: stripLabels(feedback) };
+        return { score, feedback };
       }
 
-      // If format didn't match — try to extract any number and use rest as feedback
+      // Fallback: extract first number + clean remaining text
       const anyNumber = text.match(/\b(\d{1,3})\b/);
-      const fallbackScore = anyNumber ? Math.max(0, Math.min(100, parseInt(anyNumber[1]))) : 75;
-      const fallbackFeedback = stripLabels(text.replace(/\d+\s*(баллов|из\s*100)?/gi, '')).slice(0, 300) || 'Тренировка завершена.';
+      const fallbackScore = anyNumber ? Math.max(0, Math.min(100, parseInt(anyNumber[1]))) : 50;
+      const fallbackFeedback = toTwoSentences(text.replace(/\d+/g, '')) || 'Тренировка завершена. Повторите материал курса.';
       return { score: fallbackScore, feedback: fallbackFeedback };
 
     } catch (e) {
