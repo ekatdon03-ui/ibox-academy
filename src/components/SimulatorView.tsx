@@ -314,9 +314,11 @@ export default function SimulatorView({ courses, user, onRefreshUser }: Simulato
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                className={`absolute inset-0 flex flex-col items-center justify-center text-white overflow-y-auto ${evaluation && evaluation.score >= 70 ? 'bg-green-500/95' : 'bg-orange-500/95'}`}
+                className={`absolute inset-0 text-white ${evaluation && evaluation.score >= 70 ? 'bg-green-500/95' : 'bg-orange-500/95'}`}
+                style={{ overflowY: 'auto' }}
               >
-                <div className="flex flex-col items-center text-center px-10 py-12 w-full max-w-lg mx-auto">
+                {/* min-h-full + flex so content centres when short, scrolls when tall */}
+                <div className="min-h-full flex flex-col items-center justify-center text-center px-10 py-12 max-w-lg mx-auto">
                   <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center mb-8 shadow-2xl relative shrink-0">
                     {evaluation && evaluation.score >= 70
                       ? <Zap size={48} className="text-green-500" fill="currentColor" />
@@ -326,17 +328,17 @@ export default function SimulatorView({ courses, user, onRefreshUser }: Simulato
                     </div>
                   </div>
 
-                  <h2 className="text-5xl font-display font-black uppercase mb-6">
+                  <h2 className="text-4xl font-display font-black uppercase mb-5 leading-tight">
                     {evaluation && evaluation.score >= 70 ? 'Успех!' : 'Нужно закрепить'}
                   </h2>
 
-                  <p className="text-sm font-medium mb-10 opacity-95 leading-relaxed w-full">
+                  <p className="text-sm font-medium mb-10 opacity-95 leading-relaxed">
                     {evaluation?.feedback || (evaluation && evaluation.score >= 70
                       ? 'Тема усвоена. Отличная работа!'
                       : 'Попробуйте ещё раз, чтобы лучше запомнить материал.')}
                   </p>
 
-                  <div className="flex gap-4 w-full justify-center">
+                  <div className="flex gap-4 justify-center flex-wrap">
                     <button
                       onClick={() => {
                         setIsSuccess(false);
