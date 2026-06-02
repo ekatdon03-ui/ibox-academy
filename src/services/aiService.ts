@@ -145,8 +145,8 @@ export const aiService = {
 
 КОНТЕКСТ КУРСА:\n${cleanCont}`;
 
-    // 1024 tokens — enough for full simulator dialogue turns
-    return await chatSend(message, history, system, 1024);
+    // 2048 tokens — enough for rich simulator dialogue turns
+    return await chatSend(message, history, system, 2048);
   },
 
   async smartAssistant(question: string, context: string, history: any[] = [], customPrompt?: string) {
@@ -298,7 +298,7 @@ export const aiService = {
 3. Профессионализм и грамотность (0–20 баллов)
 
 КОНТЕКСТ КУРСА:
-${cleanCont.substring(0, 3000)}
+${cleanCont.substring(0, 4000)}
 
 ДИАЛОГ ТРЕНИРОВКИ:
 ${historyText}
@@ -306,7 +306,7 @@ ${historyText}
 Ответь строго в таком формате (без лишнего текста):
 ОЦЕНКА: [число от 0 до 100]
 ФИДБЕК: [2-3 предложения на русском — что сделано хорошо и что стоит улучшить]`,
-        { maxTokens: 400, temp: 0.3 }
+        { maxTokens: 1024, temp: 0.3 }
       );
 
       // Strip label prefixes from any text chunk

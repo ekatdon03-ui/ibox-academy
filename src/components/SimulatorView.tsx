@@ -94,24 +94,28 @@ export default function SimulatorView({ courses, user, onRefreshUser }: Simulato
 
     try {
       const context = buildRichContext(selectedCourse, selectedLessonId);
-      
-      const history = messages.slice(-30); // Keep last 15 exchanges
+      const history = messages.slice(-20);
 
-      // Force conclusion hint if turns exceeded
-      const finalHint = nextTurnCount >= 3 ? "\n[СИСТЕМНОЕ: Пора завершать тренировку. Подведи итоги и напиши SUCCESS, если ученик справился]" : "";
+      // On the 3rd turn, tell AI to wrap up — but we finish regardless of SUCCESS keyword
+      const finalHint = nextTurnCount >= 3
+        ? "\n[СИСТЕМНОЕ: Это последний ход тренировки. Подведи итог ответа ученика и заверши сессию.]"
+        : "";
 
       const responseRaw = await aiService.trainingTutor(userText + finalHint, context, history, settings?.tutorPrompt);
-      
-      // Clean only the success marker, keep markdown
-      const botResponse = (responseRaw || "")
-        .split('\n').filter(line => line.trim()).join('\n');
-        
-      const isFinishing = botResponse.toLowerCase().includes('success') || (nextTurnCount >= 5);
-      const cleanResponse = botResponse.replace(/success/gi, '').trim();
-      
-      const updatedMessages: { role: 'user' | 'model', parts: { text: string }[] }[] = [...newMessages as any, { role: 'model', parts: [{ text: cleanResponse }] }];
+
+      const cleanResponse = (responseRaw || "")
+        .replace(/success/gi, '')
+        .split('\n').filter(line => line.trim()).join('\n')
+        .trim();
+
+      const updatedMessages: { role: 'user' | 'model', parts: { text: string }[] }[] = [
+        ...newMessages as any,
+        { role: 'model', parts: [{ text: cleanResponse }] }
+      ];
       setMessages(updatedMessages);
-      
+
+      // Finish after exactly 3 user turns OR if AI explicitly signals success
+      const isFinishing = nextTurnCount >= 3 || responseRaw.toLowerCase().includes('success');
       if (isFinishing) {
         await handleFinishWithResponse(cleanResponse, context, updatedMessages);
       }
