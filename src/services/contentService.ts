@@ -324,13 +324,44 @@ export const contentService = {
       const snap = await getDocs(collection(db, RESULTS_COLLECTION));
       return snap.docs.map(d => {
         const data = d.data();
-        return { 
+        return {
           ...data,
           timestamp: data.createdAt?.seconds ? new Date(data.createdAt.seconds * 1000).toISOString() : data.timestamp
         } as CourseResult;
       });
     } catch (error) {
       return [];
+    }
+  },
+
+  async getResultsForUser(userId: string): Promise<CourseResult[]> {
+    if (!userId) return [];
+    try {
+      const q = query(collection(db, RESULTS_COLLECTION), where('userId', '==', userId));
+      const snap = await getDocs(q);
+      return snap.docs.map(d => {
+        const data = d.data();
+        return {
+          ...data,
+          timestamp: data.createdAt?.seconds ? new Date(data.createdAt.seconds * 1000).toISOString() : data.timestamp
+        } as CourseResult;
+      });
+    } catch (e) {
+      // Fallback: fetch all and filter client-side
+      try {
+        const snap = await getDocs(collection(db, RESULTS_COLLECTION));
+        return snap.docs
+          .map(d => {
+            const data = d.data();
+            return {
+              ...data,
+              timestamp: data.createdAt?.seconds ? new Date(data.createdAt.seconds * 1000).toISOString() : data.timestamp
+            } as CourseResult;
+          })
+          .filter(r => r.userId === userId);
+      } catch {
+        return [];
+      }
     }
   },
 

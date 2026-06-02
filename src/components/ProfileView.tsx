@@ -37,12 +37,12 @@ export default function ProfileView({ user, onLogout, onUpdateUser, courses }: P
     const load = async () => {
       try {
         const [uResults, history, progress] = await Promise.all([
-          contentService.getAllResults(), // Fallback for demo
+          contentService.getResultsForUser(user.id),
           contentService.getSimulatorSessions(user.id),
           contentService.getAllProgressForUser(user.id)
         ]);
-        
-        setResults(uResults.filter(r => r.userId === user.id));
+
+        setResults(uResults);
         setTrainerHistory(history);
         setLessonHistory(progress);
       } catch (e) {
