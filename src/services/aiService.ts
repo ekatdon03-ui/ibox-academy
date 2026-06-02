@@ -325,33 +325,42 @@ ${cleanCont.substring(0, 3500)}
 Ответь СТРОГО двумя строками без пояснений:
 ОЦЕНКА: [итоговое число от 0 до 100]
 ФИДБЕК: [2 предложения — конкретно что было не так и что изучить]`,
-        { maxTokens: 250, temp: 0.1 }
+        { maxTokens: 600, temp: 0.1 }
       );
 
-      // Clean any label artifacts
+      // Score-based default feedback when AI doesn't return one
+      const defaultFeedback = (s: number) => {
+        if (s >= 90) return 'Отличная работа! Все ответы точные и полные по материалам курса. Продолжайте в том же духе.';
+        if (s >= 70) return 'Хороший результат, основной материал усвоен. Обратите внимание на детали и проработайте слабые места.';
+        if (s >= 50) return 'Есть понимание темы, но знания неполные. Повторите ключевые разделы курса и попробуйте снова.';
+        if (s >= 20) return 'Знание материала недостаточное, много ошибок. Необходимо полностью повторить курс перед следующей тренировкой.';
+        return 'Ответы не содержали информации из курса. Изучите материал курса полностью и пройдите тренировку снова.';
+      };
+
+      // Clean label artifacts from feedback text
       const cleanFeedback = (raw: string) =>
         raw
           .replace(/ОЦЕНКА[:\s]*\d*\s*/gi, '')
           .replace(/ФИДБЕК[:\s]*/gi, '')
-          .replace(/^[-–—:]+\s*/gm, '')
-          .trim()
-          .slice(0, 280);
+          .replace(/^[-–—:]\s*/gm, '')
+          .trim();
 
       const scoreMatch = text.match(/ОЦЕНКА[:\s]+(\d+)/i);
-      const feedbackMatch = text.match(/ФИДБЕК[:\s]+([\s\S]+)/i);
+      // Split on ФИДБЕК label — take everything after it
+      const feedbackParts = text.split(/ФИДБЕК[:\s]*/i);
+      const rawFeedback = feedbackParts.length > 1 ? feedbackParts.slice(1).join(' ') : '';
 
       const score = scoreMatch ? Math.max(0, Math.min(100, parseInt(scoreMatch[1]))) : null;
-      const feedback = feedbackMatch ? cleanFeedback(feedbackMatch[1]) : null;
+      const feedback = cleanFeedback(rawFeedback);
 
-      if (score !== null && feedback) {
-        return { score, feedback };
+      if (score !== null) {
+        return { score, feedback: feedback.length > 10 ? feedback : defaultFeedback(score) };
       }
 
-      // Fallback
+      // Last-resort fallback
       const anyNum = text.match(/\b(\d{1,3})\b/);
       const fbScore = anyNum ? Math.max(0, Math.min(100, parseInt(anyNum[1]))) : 50;
-      const fbText = cleanFeedback(text.replace(/\d+/g, '')) || 'Тренировка завершена. Изучите материал курса и попробуйте снова.';
-      return { score: fbScore, feedback: fbText };
+      return { score: fbScore, feedback: defaultFeedback(fbScore) };
 
     } catch (e) {
       console.error('Evaluation failed:', e);

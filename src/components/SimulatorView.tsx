@@ -256,116 +256,109 @@ export default function SimulatorView({ courses, user, onRefreshUser }: Simulato
           </div>
         </header>
 
-        <div className="flex-1 bg-white rounded-[40px] border border-gray-100 shadow-xl overflow-hidden flex flex-col mb-8 relative">
-          <div ref={scrollRef} className="flex-1 overflow-y-auto p-10 space-y-6">
-            {messages.map((msg, idx) => (
-              <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[80%] p-6 rounded-[24px] text-sm leading-relaxed font-medium shadow-sm ${
-                  msg.role === 'user' 
-                    ? 'bg-ibox-action text-white rounded-tr-none' 
-                    : 'bg-ibox-bg text-ibox-blue rounded-tl-none'
-                }`}>
-                  {msg.role === 'user' ? (
-                    msg.parts[0].text
-                  ) : (
-                    <div className="markdown-content">
-                      <ReactMarkdown>{msg.parts[0].text.replace('[SUCCESS]', '')}</ReactMarkdown>
-                    </div>
-                  )}
-                </div>
+        {/* Result screen — replaces chat entirely to avoid overflow-hidden clipping */}
+        {isSuccess ? (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.97 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className={`flex-1 rounded-[40px] shadow-xl mb-8 flex flex-col items-center justify-center text-center px-12 py-16 text-white ${evaluation && evaluation.score >= 70 ? 'bg-green-500' : 'bg-orange-500'}`}
+          >
+            <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center mb-8 shadow-2xl relative shrink-0">
+              {evaluation && evaluation.score >= 70
+                ? <Zap size={48} className="text-green-500" fill="currentColor" />
+                : <X size={48} className="text-orange-500" />}
+              <div className="absolute -right-4 -top-4 bg-[#002D57] text-white w-14 h-14 rounded-full flex items-center justify-center font-display font-black text-xl shadow-xl">
+                {evaluation?.score ?? 0}
               </div>
-            ))}
-            {isLoading && (
-              <div className="flex justify-start">
-                <div className="bg-ibox-bg p-6 rounded-[24px] rounded-tl-none">
-                  <div className="flex gap-1">
-                    <motion.div animate={{ opacity: [0.4, 1, 0.4] }} transition={{ repeat: Infinity, duration: 1 }} className="w-2 h-2 bg-ibox-blue/20 rounded-full" />
-                    <motion.div animate={{ opacity: [0.4, 1, 0.4] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-2 h-2 bg-ibox-blue/20 rounded-full" />
-                    <motion.div animate={{ opacity: [0.4, 1, 0.4] }} transition={{ repeat: Infinity, duration: 1, delay: 0.4 }} className="w-2 h-2 bg-ibox-blue/20 rounded-full" />
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+            </div>
 
-          <div className="p-10 border-t border-gray-100 bg-gray-50/50">
-            <div className="relative">
-              <input 
-                type="text" 
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-                placeholder="Ваш ответ..."
-                disabled={isSuccess}
-                className="w-full bg-white rounded-[24px] py-6 pl-10 pr-20 outline-none shadow-sm border border-gray-100 font-bold focus:ring-4 focus:ring-ibox-action/5 transition-all text-lg"
-              />
-              <button 
-                onClick={handleSend}
-                disabled={isSuccess}
-                className="absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 bg-ibox-blue text-white rounded-2xl flex items-center justify-center hover:bg-ibox-action transition-all shadow-lg"
+            <h2 className="text-5xl font-display font-black uppercase mb-6 leading-tight">
+              {evaluation && evaluation.score >= 70 ? 'Успех!' : 'Нужно закрепить'}
+            </h2>
+
+            <p className="text-base font-medium mb-10 opacity-95 leading-relaxed max-w-md">
+              {evaluation?.feedback || (evaluation && evaluation.score >= 70
+                ? 'Тема усвоена. Отличная работа!'
+                : 'Попробуйте ещё раз, чтобы лучше запомнить материал.')}
+            </p>
+
+            <div className="flex gap-4 justify-center flex-wrap">
+              <button
+                onClick={() => {
+                  setIsSuccess(false);
+                  setEvaluation(null);
+                  startSimulator(selectedCourse!, selectedLessonId || undefined);
+                }}
+                className="bg-white text-gray-800 px-10 py-5 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl hover:bg-gray-100 transition-all"
               >
-                <Send size={20} />
+                Попробовать заново
+              </button>
+              <button
+                onClick={() => {
+                  setSelectedCourse(null);
+                  setSelectedLessonId(null);
+                  setMessages([]);
+                  setIsSuccess(false);
+                }}
+                className="bg-[#002D57] text-white px-10 py-5 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl hover:bg-[#003D70] transition-all"
+              >
+                В каталог
               </button>
             </div>
-          </div>
-
-          <AnimatePresence>
-            {isSuccess && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className={`absolute inset-0 text-white ${evaluation && evaluation.score >= 70 ? 'bg-green-500/95' : 'bg-orange-500/95'}`}
-                style={{ overflowY: 'auto' }}
-              >
-                {/* min-h-full + flex so content centres when short, scrolls when tall */}
-                <div className="min-h-full flex flex-col items-center justify-center text-center px-10 py-12 max-w-lg mx-auto">
-                  <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center mb-8 shadow-2xl relative shrink-0">
-                    {evaluation && evaluation.score >= 70
-                      ? <Zap size={48} className="text-green-500" fill="currentColor" />
-                      : <X size={48} className="text-orange-500" />}
-                    <div className="absolute -right-4 -top-4 bg-[#002D57] text-white w-14 h-14 rounded-full flex items-center justify-center font-display font-black text-xl shadow-xl">
-                      {evaluation?.score ?? 0}
-                    </div>
-                  </div>
-
-                  <h2 className="text-4xl font-display font-black uppercase mb-5 leading-tight">
-                    {evaluation && evaluation.score >= 70 ? 'Успех!' : 'Нужно закрепить'}
-                  </h2>
-
-                  <p className="text-sm font-medium mb-10 opacity-95 leading-relaxed">
-                    {evaluation?.feedback || (evaluation && evaluation.score >= 70
-                      ? 'Тема усвоена. Отличная работа!'
-                      : 'Попробуйте ещё раз, чтобы лучше запомнить материал.')}
-                  </p>
-
-                  <div className="flex gap-4 justify-center flex-wrap">
-                    <button
-                      onClick={() => {
-                        setIsSuccess(false);
-                        setEvaluation(null);
-                        startSimulator(selectedCourse!, selectedLessonId || undefined);
-                      }}
-                      className="bg-white text-gray-800 px-10 py-5 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl hover:bg-gray-100 transition-all"
-                    >
-                      Попробовать заново
-                    </button>
-                    <button
-                      onClick={() => {
-                        setSelectedCourse(null);
-                        setSelectedLessonId(null);
-                        setMessages([]);
-                        setIsSuccess(false);
-                      }}
-                      className="bg-[#002D57] text-white px-10 py-5 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl hover:bg-[#003D70] transition-all"
-                    >
-                      В каталог
-                    </button>
+          </motion.div>
+        ) : (
+          <div className="flex-1 bg-white rounded-[40px] border border-gray-100 shadow-xl overflow-hidden flex flex-col mb-8">
+            <div ref={scrollRef} className="flex-1 overflow-y-auto p-10 space-y-6">
+              {messages.map((msg, idx) => (
+                <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[80%] p-6 rounded-[24px] text-sm leading-relaxed font-medium shadow-sm ${
+                    msg.role === 'user'
+                      ? 'bg-ibox-action text-white rounded-tr-none'
+                      : 'bg-ibox-bg text-ibox-blue rounded-tl-none'
+                  }`}>
+                    {msg.role === 'user' ? (
+                      msg.parts[0].text
+                    ) : (
+                      <div className="markdown-content">
+                        <ReactMarkdown>{msg.parts[0].text.replace('[SUCCESS]', '')}</ReactMarkdown>
+                      </div>
+                    )}
                   </div>
                 </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+              ))}
+              {isLoading && (
+                <div className="flex justify-start">
+                  <div className="bg-ibox-bg p-6 rounded-[24px] rounded-tl-none">
+                    <div className="flex gap-1">
+                      <motion.div animate={{ opacity: [0.4, 1, 0.4] }} transition={{ repeat: Infinity, duration: 1 }} className="w-2 h-2 bg-ibox-blue/20 rounded-full" />
+                      <motion.div animate={{ opacity: [0.4, 1, 0.4] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-2 h-2 bg-ibox-blue/20 rounded-full" />
+                      <motion.div animate={{ opacity: [0.4, 1, 0.4] }} transition={{ repeat: Infinity, duration: 1, delay: 0.4 }} className="w-2 h-2 bg-ibox-blue/20 rounded-full" />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="p-10 border-t border-gray-100 bg-gray-50/50">
+              <div className="relative">
+                <input
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleSend()}
+                  placeholder="Ваш ответ..."
+                  className="w-full bg-white rounded-[24px] py-6 pl-10 pr-20 outline-none shadow-sm border border-gray-100 font-bold focus:ring-4 focus:ring-ibox-action/5 transition-all text-lg"
+                />
+                <button
+                  onClick={handleSend}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 bg-ibox-blue text-white rounded-2xl flex items-center justify-center hover:bg-ibox-action transition-all shadow-lg"
+                >
+                  <Send size={20} />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
