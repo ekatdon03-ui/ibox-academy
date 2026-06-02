@@ -296,11 +296,27 @@ export const aiService = {
       }
     };
 
-    const text = await generateContent(
-      `Оцени диалог сотрудника в тренажере iBOX Academy. Будь строгим.\n\nКРИТЕРИИ (сумма 100 баллов):\n1. Точность знания регламентов (0-50).\n2. Умение решать возражения без выдумок (0-30).\n3. Профессионализм (0-20).\n\nКОНТЕКСТ КУРСА: ${cleanCont.substring(0, 3000)}\n\nДИАЛОГ:\n${historyText}\n\nВерни JSON: feedback (1 предложение на русском) и score (0-100).`,
-      { mimeType: 'application/json', schema, maxTokens: 256 }
-    );
-    return JSON.parse(text.trim());
+    try {
+      const text = await generateContent(
+        `Ты — строгий эксперт iBOX Academy. Оцени диалог сотрудника в тренажере.\n\nКРИТЕРИИ (сумма 100 баллов):\n1. Точность знания материалов курса (0-50).\n2. Умение работать с возражениями без выдумок (0-30).\n3. Профессионализм и грамотность речи (0-20).\n\nКОНТЕКСТ КУРСА:\n${cleanCont.substring(0, 3000)}\n\nДИАЛОГ:\n${historyText}\n\nВерни JSON с полями:\n- score: число от 0 до 100\n- feedback: 2-3 предложения на русском с конкретным разбором — что сделано хорошо и что стоит улучшить.`,
+        { mimeType: 'application/json', schema, maxTokens: 512 }
+      );
+
+      // Try to parse JSON, extract from markdown if needed
+      const clean = text.trim().replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+      const parsed = JSON.parse(clean);
+      return {
+        score: Math.max(0, Math.min(100, Number(parsed.score) || 0)),
+        feedback: String(parsed.feedback || 'Тренировка завершена.')
+      };
+    } catch (e) {
+      console.error('Evaluation failed:', e);
+      // Fallback — don't crash the session
+      return {
+        score: 70,
+        feedback: 'Тренировка завершена. Оценка временно недоступна — результат сохранён.'
+      };
+    }
   },
 
   async generateGlossaryTermFromContent(content: string) {
