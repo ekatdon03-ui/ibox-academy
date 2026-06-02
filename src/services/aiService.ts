@@ -309,21 +309,29 @@ ${historyText}
         { maxTokens: 400, temp: 0.3 }
       );
 
+      // Strip label prefixes from any text chunk
+      const stripLabels = (t: string) => t
+        .replace(/ОЦЕНКА:\s*\d*\s*/gi, '')
+        .replace(/ФИДБЕК:\s*/gi, '')
+        .replace(/^\s*[-–:]+\s*/gm, '')
+        .trim();
+
       // Parse score with regex
       const scoreMatch = text.match(/ОЦЕНКА:\s*(\d+)/i);
-      const feedbackMatch = text.match(/ФИДБЕК:\s*(.+)/is);
+      const feedbackMatch = text.match(/ФИДБЕК:\s*([\s\S]+)/i);
 
       const score = scoreMatch ? Math.max(0, Math.min(100, parseInt(scoreMatch[1]))) : null;
       const feedback = feedbackMatch ? feedbackMatch[1].trim() : null;
 
       if (score !== null && feedback) {
-        return { score, feedback };
+        return { score, feedback: stripLabels(feedback) };
       }
 
       // If format didn't match — try to extract any number and use rest as feedback
       const anyNumber = text.match(/\b(\d{1,3})\b/);
       const fallbackScore = anyNumber ? Math.max(0, Math.min(100, parseInt(anyNumber[1]))) : 75;
-      return { score: fallbackScore, feedback: text.replace(/\d+\s*(баллов|из\s*100)?/gi, '').trim().slice(0, 300) || 'Тренировка завершена.' };
+      const fallbackFeedback = stripLabels(text.replace(/\d+\s*(баллов|из\s*100)?/gi, '')).slice(0, 300) || 'Тренировка завершена.';
+      return { score: fallbackScore, feedback: fallbackFeedback };
 
     } catch (e) {
       console.error('Evaluation failed:', e);

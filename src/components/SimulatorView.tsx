@@ -318,11 +318,20 @@ export default function SimulatorView({ courses, user, onRefreshUser }: Simulato
                       {evaluation?.score || 0}
                    </div>
                 </div>
-                <h2 className="text-5xl font-display font-black uppercase mb-4">
+                <h2 className="text-5xl font-display font-black uppercase mb-6">
                   {evaluation && evaluation.score >= 70 ? 'Успех!' : 'Нужно закрепить'}
                 </h2>
-                <p className="text-xl font-bold mb-12 opacity-90">
-                  {evaluation?.feedback || (evaluation && evaluation.score >= 70 ? 'Тема усвоена.' : 'Попробуйте еще раз, чтобы лучше запомнить материал.')}
+                <p className="text-sm font-medium mb-10 opacity-95 max-w-md text-center leading-relaxed">
+                  {(() => {
+                    const raw = evaluation?.feedback || '';
+                    const clean = raw
+                      .replace(/ОЦЕНКА:\s*\d*\s*/gi, '')
+                      .replace(/ФИДБЕК:\s*/gi, '')
+                      .trim();
+                    return clean || (evaluation && evaluation.score >= 70
+                      ? 'Тема усвоена. Отличная работа!'
+                      : 'Попробуйте ещё раз, чтобы лучше запомнить материал.');
+                  })()}
                 </p>
                 
                 <div className="flex gap-4">
