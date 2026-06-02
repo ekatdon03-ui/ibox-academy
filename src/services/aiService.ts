@@ -354,7 +354,7 @@ ${cleanCont.substring(0, 3500)}
       const feedback = cleanFeedback(rawFeedback);
 
       if (score !== null) {
-        return { score, feedback: feedback.length > 10 ? feedback : defaultFeedback(score) };
+        return { score, feedback: feedback.length > 30 ? feedback : defaultFeedback(score) };
       }
 
       // Last-resort fallback

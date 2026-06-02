@@ -256,57 +256,54 @@ export default function SimulatorView({ courses, user, onRefreshUser }: Simulato
           </div>
         </header>
 
-        {/* Result screen — replaces chat entirely; overflow-y-auto + min-h-full inner
-            is the only reliable pattern when parent has a fixed flex-1 height */}
+        {/* Result screen — natural height block, parent overflow-y-auto handles scroll */}
         {isSuccess ? (
           <motion.div
             initial={{ opacity: 0, scale: 0.97 }}
             animate={{ opacity: 1, scale: 1 }}
-            className={`flex-1 rounded-[40px] shadow-xl mb-8 text-white overflow-y-auto ${evaluation && evaluation.score >= 70 ? 'bg-green-500' : 'bg-orange-500'}`}
+            className={`rounded-[40px] shadow-xl mb-8 text-white text-center px-12 pt-16 pb-12 ${evaluation && evaluation.score >= 70 ? 'bg-green-500' : 'bg-orange-500'}`}
           >
-            <div className="min-h-full flex flex-col items-center justify-center text-center px-12 py-16">
-              <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center mb-8 shadow-2xl relative shrink-0">
-                {evaluation && evaluation.score >= 70
-                  ? <Zap size={48} className="text-green-500" fill="currentColor" />
-                  : <X size={48} className="text-orange-500" />}
-                <div className="absolute -right-4 -top-4 bg-[#002D57] text-white w-14 h-14 rounded-full flex items-center justify-center font-display font-black text-xl shadow-xl">
-                  {evaluation?.score ?? 0}
-                </div>
+            <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center mx-auto mb-8 shadow-2xl relative">
+              {evaluation && evaluation.score >= 70
+                ? <Zap size={48} className="text-green-500" fill="currentColor" />
+                : <X size={48} className="text-orange-500" />}
+              <div className="absolute -right-4 -top-4 bg-[#002D57] text-white w-14 h-14 rounded-full flex items-center justify-center font-display font-black text-xl shadow-xl">
+                {evaluation?.score ?? 0}
               </div>
+            </div>
 
-              <h2 className="text-5xl font-display font-black uppercase mb-6 leading-tight">
-                {evaluation && evaluation.score >= 70 ? 'Успех!' : 'Нужно закрепить'}
-              </h2>
+            <h2 className="text-5xl font-display font-black uppercase mb-8 leading-tight">
+              {evaluation && evaluation.score >= 70 ? 'Успех!' : 'Нужно закрепить'}
+            </h2>
 
-              <p className="text-base font-medium mb-10 opacity-95 leading-relaxed w-full">
-                {evaluation?.feedback || (evaluation && evaluation.score >= 70
-                  ? 'Тема усвоена. Отличная работа!'
-                  : 'Попробуйте ещё раз, чтобы лучше запомнить материал.')}
-              </p>
+            <p className="text-base font-medium mb-10 opacity-95 leading-relaxed">
+              {evaluation?.feedback || (evaluation && evaluation.score >= 70
+                ? 'Тема усвоена. Отличная работа!'
+                : 'Попробуйте ещё раз, чтобы лучше запомнить материал.')}
+            </p>
 
-              <div className="flex gap-4 justify-center flex-wrap">
-                <button
-                  onClick={() => {
-                    setIsSuccess(false);
-                    setEvaluation(null);
-                    startSimulator(selectedCourse!, selectedLessonId || undefined);
-                  }}
-                  className="bg-white text-gray-800 px-10 py-5 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl hover:bg-gray-100 transition-all"
-                >
-                  Попробовать заново
-                </button>
-                <button
-                  onClick={() => {
-                    setSelectedCourse(null);
-                    setSelectedLessonId(null);
-                    setMessages([]);
-                    setIsSuccess(false);
-                  }}
-                  className="bg-[#002D57] text-white px-10 py-5 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl hover:bg-[#003D70] transition-all"
-                >
-                  В каталог
-                </button>
-              </div>
+            <div className="flex gap-4 justify-center flex-wrap">
+              <button
+                onClick={() => {
+                  setIsSuccess(false);
+                  setEvaluation(null);
+                  startSimulator(selectedCourse!, selectedLessonId || undefined);
+                }}
+                className="bg-white text-gray-800 px-10 py-5 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl hover:bg-gray-100 transition-all"
+              >
+                Попробовать заново
+              </button>
+              <button
+                onClick={() => {
+                  setSelectedCourse(null);
+                  setSelectedLessonId(null);
+                  setMessages([]);
+                  setIsSuccess(false);
+                }}
+                className="bg-[#002D57] text-white px-10 py-5 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl hover:bg-[#003D70] transition-all"
+              >
+                В каталог
+              </button>
             </div>
           </motion.div>
         ) : (
