@@ -1186,6 +1186,73 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
   };
 
   const [extractingIdx, setExtractingIdx] = useState<number | null>(null);
+  const [isExtractingCourse, setIsExtractingCourse] = useState(false);
+  const [courseAiKnowledge, setCourseAiKnowledge] = useState('');
+
+  const handleExtractCourseKnowledge = async () => {
+    if (!fileUrl) {
+      showFormToast("Сначала загрузите файл курса или вставьте ссылку.", true);
+      return;
+    }
+    setIsExtractingCourse(true);
+    try {
+      let base64Content = '';
+      let mimeTypeContent = '';
+
+      if (fileUrl.startsWith('data:')) {
+        const parts = fileUrl.split(',');
+        base64Content = parts[1];
+        mimeTypeContent = parts[0].split(':')[1].split(';')[0];
+      } else {
+        try {
+          const response = await axios.post('/api/proxy-fetch', { url: fileUrl });
+          base64Content = response.data.base64;
+          mimeTypeContent = response.data.contentType || 'application/octet-stream';
+        } catch (fetchErr: any) {
+          showFormToast("Не удалось загрузить файл по ссылке. Убедитесь, что доступ открыт «Всем, у кого есть ссылка».", true);
+          setIsExtractingCourse(false);
+          return;
+        }
+      }
+
+      if (mimeTypeContent.toLowerCase().includes('text/html')) {
+        showFormToast("Получена HTML-страница вместо файла. В Google Drive: Файл → Поделиться → Опубликовать в интернете.", true);
+        setIsExtractingCourse(false);
+        return;
+      }
+
+      const extracted = await aiService.extractContentFromMedia(base64Content, mimeTypeContent);
+      if (extracted) {
+        setCourseAiKnowledge(extracted);
+        // Add to first lesson or auto-create a lesson "Материалы курса"
+        setLessons(prev => {
+          if (prev.length === 0) {
+            return [{
+              id: 'lesson-1',
+              title: 'Материалы курса',
+              content: 'Основной материал курса доступен в окне просмотра.',
+              fileUrl: fileUrl,
+              aiKnowledge: extracted,
+            }];
+          }
+          const n = [...prev];
+          n[0] = {
+            ...n[0],
+            aiKnowledge: (n[0].aiKnowledge ? n[0].aiKnowledge + '\n\n' : '') + extracted,
+          };
+          return n;
+        });
+        showFormToast("ИИ изучил файл курса и сохранил данные в базу знаний.");
+      } else {
+        showFormToast("ИИ не смог извлечь информацию. Попробуйте загрузить PDF напрямую.", true);
+      }
+    } catch (e: any) {
+      console.error("Course extraction failed", e);
+      showFormToast("Ошибка при анализе файла: " + (e.message || "Неизвестная ошибка"), true);
+    } finally {
+      setIsExtractingCourse(false);
+    }
+  };
 
   const handleExtractKnowledge = async (idx: number) => {
     if (extractingIdx !== null) return;
@@ -1402,6 +1469,35 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
               <p className="text-[8px] font-bold text-gray-400 ml-4 leading-relaxed uppercase tracking-tighter">
                 * Рекомендуется использовать ссылки для файлов более 1МБ (презентации, длинные видео).
               </p>
+              {/* Course-level AI extraction button */}
+              {fileUrl && (
+                <div className="flex flex-col gap-3 mt-2">
+                  <button
+                    onClick={handleExtractCourseKnowledge}
+                    disabled={isExtractingCourse}
+                    className={`flex items-center gap-2 self-end px-6 py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest transition-all shadow-lg ${
+                      isExtractingCourse
+                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                        : 'bg-[#002D57] text-white hover:bg-[#00A3FF] hover:scale-105 active:scale-95'
+                    }`}
+                  >
+                    {isExtractingCourse ? (
+                      <div className="w-3 h-3 border-2 border-gray-400/30 border-t-gray-400 rounded-full animate-spin" />
+                    ) : (
+                      <Zap size={12} fill="currentColor" />
+                    )}
+                    {isExtractingCourse ? 'АНАЛИЗ ФАЙЛА...' : 'ИЗУЧИТЬ ФАЙЛ КУРСА (ИИ)'}
+                  </button>
+                  {courseAiKnowledge && (
+                    <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-[#002D57] mb-1">База знаний ИИ сохранена ✓</p>
+                      <p className="text-[9px] text-[#002D57]/60 font-medium leading-relaxed line-clamp-2">
+                        {courseAiKnowledge.slice(0, 180)}{courseAiKnowledge.length > 180 ? '...' : ''}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="space-y-2">
