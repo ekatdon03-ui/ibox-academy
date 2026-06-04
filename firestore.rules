@@ -73,9 +73,12 @@ service cloud.firestore {
 
     // ── RESULTS ───────────────────────────────────────────────────────────
     match /results/{resultId} {
+      // Deterministic doc id `${userId}_${courseId}` — retakes overwrite the same
+      // doc, so signed-in users need update too (anonymous auth UID ≠ bitrix profile
+      // id, so per-owner checks can't be enforced — mirrors the progress collection).
       allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update, delete: if isAdmin();
+      allow create, update: if isSignedIn();
+      allow delete: if isAdmin();
     }
 
     // ── GLOSSARY ──────────────────────────────────────────────────────────

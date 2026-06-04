@@ -82,11 +82,30 @@ export const contentService = {
   },
 
   async saveResult(result: CourseResult): Promise<void> {
+    // One result document per (user, course) — keyed deterministically so retakes
+    // overwrite the same row instead of piling up new docs (which skewed averages).
+    // Keep the BEST score/progress across attempts (standard LMS behaviour).
+    if (!result.userId || !result.courseId) return;
+    const docId = `${result.userId}_${result.courseId}`;
+    const ref = doc(db, RESULTS_COLLECTION, docId);
     try {
-      await addDoc(collection(db, RESULTS_COLLECTION), {
+      let bestScore = result.score;
+      let bestProgress = result.progress;
+      try {
+        const existing = await getDoc(ref);
+        if (existing.exists()) {
+          const prev = existing.data() as CourseResult;
+          bestScore = Math.max(prev.score ?? 0, result.score);
+          bestProgress = Math.max(prev.progress ?? 0, result.progress);
+        }
+      } catch (_) {}
+
+      await setDoc(ref, {
         ...result,
-        createdAt: serverTimestamp()
-      });
+        score: bestScore,
+        progress: bestProgress,
+        createdAt: serverTimestamp(),
+      }, { merge: true });
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, RESULTS_COLLECTION);
     }

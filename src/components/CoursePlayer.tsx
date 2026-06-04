@@ -11,6 +11,9 @@ interface CoursePlayerProps {
   onClose: () => void;
 }
 
+// Minimum percentage required to pass a course quiz
+const PASS_THRESHOLD = 80;
+
 export default function CoursePlayer({ course, user, onClose }: CoursePlayerProps) {
   const [currentLessonIdx, setCurrentLessonIdx] = useState(0);
   // quizType: null = no quiz shown; 'lesson' = per-lesson quiz; 'final' = final quiz
@@ -29,6 +32,10 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
   const activeQuestions = quizType === 'lesson'
     ? (course.lessons[currentLessonIdx]?.testConfig?.questions ?? [])
     : (course.testConfig?.questions ?? []);
+
+  // Every question must have a selected option (no holes in the sparse array)
+  const allAnswered = activeQuestions.length > 0 &&
+    activeQuestions.every((_, idx) => Number.isInteger(selectedAnswers[idx]));
 
   if (!course.lessons || course.lessons.length === 0) {
     return (
@@ -185,11 +192,13 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
   };
 
   const handleQuizSubmit = async () => {
+    const total = activeQuestions.length;
     let correct = 0;
     activeQuestions.forEach((q, idx) => {
-      if (selectedAnswers[idx] === q.correctAnswer) correct++;
+      // Coerce both sides to numbers — guards against string-typed correctAnswer from DB/AI
+      if (Number(selectedAnswers[idx]) === Number(q.correctAnswer)) correct++;
     });
-    const finalScore = Math.round((correct / activeQuestions.length) * 100);
+    const finalScore = total > 0 ? Math.round((correct / total) * 100) : 100;
 
     if (quizType === 'lesson') {
       setQuizType(null);
@@ -213,7 +222,7 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
     try {
       if (user.id && course.id) {
         const lastLessonId = course.lessons[course.lessons.length - 1].id;
-        if (finalScore >= 80) {
+        if (finalScore >= PASS_THRESHOLD) {
           await contentService.updateLessonProgress(user.id, course.id, lastLessonId, true, course.lessons.length);
           await contentService.saveResult({ userId: user.id, courseId: course.id, score: finalScore, progress: 100, timestamp: new Date().toISOString() });
         } else {
@@ -381,7 +390,7 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
                 </div>
                 <button
                   onClick={handleQuizSubmit}
-                  disabled={selectedAnswers.length < activeQuestions.length}
+                  disabled={!allAnswered}
                   className="w-full mt-20 py-8 bg-[#002D57] text-white rounded-[40px] font-display font-black uppercase tracking-[0.2em] shadow-2xl disabled:opacity-30 hover:bg-[#00A3FF] transition-all"
                 >
                   {quizType === 'lesson' ? 'Продолжить' : 'Завершить курс и отправить результат'}
@@ -394,16 +403,16 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
                 animate={{ scale: 1, opacity: 1 }}
                 className="max-w-xl mx-auto py-20 text-center bg-white rounded-[64px] border border-gray-100 p-16 shadow-2xl"
               >
-                <div className={`w-32 h-32 rounded-[48px] flex items-center justify-center mx-auto mb-10 shadow-2xl ${score >= 80 ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
-                  {score >= 80 ? <Trophy size={48} /> : <X size={48} />}
+                <div className={`w-32 h-32 rounded-[48px] flex items-center justify-center mx-auto mb-10 shadow-2xl ${score >= PASS_THRESHOLD ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+                  {score >= PASS_THRESHOLD ? <Trophy size={48} /> : <X size={48} />}
                 </div>
                 <h2 className="text-6xl font-display font-black uppercase mb-4 tracking-tighter text-[#002D57]">{score}%</h2>
-                <p className="text-xs font-black uppercase tracking-widest text-[#00A3FF] mb-12">{score >= 80 ? 'Курс успешно зачтен' : 'Попробуйте еще раз'}</p>
-                <p className="text-lg font-bold text-gray-400 mb-12 leading-relaxed">{score >= 80 ? 'Вы отлично справились с материалом курса!' : 'Для зачета обучения необходимо набрать минимум 80%. Рекомендуем еще раз ознакомиться с уроками.'}</p>
+                <p className="text-xs font-black uppercase tracking-widest text-[#00A3FF] mb-12">{score >= PASS_THRESHOLD ? 'Курс успешно зачтен' : 'Попробуйте еще раз'}</p>
+                <p className="text-lg font-bold text-gray-400 mb-12 leading-relaxed">{score >= PASS_THRESHOLD ? 'Вы отлично справились с материалом курса!' : `Для зачета обучения необходимо набрать минимум ${PASS_THRESHOLD}%. Рекомендуем еще раз ознакомиться с уроками.`}</p>
                 <div className="flex flex-col gap-4">
                   <button onClick={onClose} className="w-full py-6 bg-[#002D57] text-white rounded-3xl font-display font-black uppercase tracking-widest shadow-xl">В личный кабинет</button>
-                  {score < 80 && (
-                    <button onClick={() => { setQuizFinished(false); setSelectedAnswers([]); setQuizType(null); setCurrentLessonIdx(0); }} className="w-full py-6 border-2 border-gray-100 rounded-3xl font-display font-black uppercase tracking-widest text-gray-400 hover:text-[#002D57] transition-all">Пройти заново</button>
+                  {score < PASS_THRESHOLD && (
+                    <button onClick={() => { setScore(0); setQuizFinished(false); setSelectedAnswers([]); setQuizType(null); setCurrentLessonIdx(0); }} className="w-full py-6 border-2 border-gray-100 rounded-3xl font-display font-black uppercase tracking-widest text-gray-400 hover:text-[#002D57] transition-all">Пройти заново</button>
                   )}
                 </div>
               </motion.div>
