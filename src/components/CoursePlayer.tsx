@@ -18,71 +18,79 @@ interface CoursePlayerProps {
 // Minimum percentage required to pass a course quiz
 const PASS_THRESHOLD = 80;
 
+// ─── Resolve the URL pdfjs should actually fetch ─────────────────────────────
+function resolvePdfSource(src: string): any {
+  // Base64 data URI → decode to bytes
+  if (src.startsWith('data:application/pdf;base64,')) {
+    const base64 = src.split(',')[1];
+    const binaryStr = atob(base64);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+    return { data: bytes };
+  }
+  // Google Drive: swap /file/d/ID/... → direct download URL
+  if (src.includes('drive.google.com') || src.includes('docs.google.com')) {
+    let driveId = '';
+    if (src.includes('/d/')) driveId = src.split('/d/')[1].split('/')[0];
+    else if (src.includes('id=')) driveId = src.split('id=')[1].split('&')[0];
+    if (driveId) return { url: `https://drive.google.com/uc?export=download&id=${driveId}`, withCredentials: true };
+    return null; // can't parse — signal fallback
+  }
+  // Everything else (Firebase Storage, plain HTTPS, etc.) — use URL directly
+  return { url: src };
+}
+
 // ─── PDF page-by-page viewer ─────────────────────────────────────────────────
-function PdfPageViewer({ src }: { src: string }) {
+function PdfPageViewer({ src, fallbackSrc }: { src: string; fallbackSrc: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [pdfDoc, setPdfDoc] = useState<any>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [useFallback, setUseFallback] = useState(false);
 
   // Load PDF document
   useEffect(() => {
     let cancelled = false;
     setIsLoading(true);
+    setUseFallback(false);
     setCurrentPage(1);
     setPdfDoc(null);
 
     const load = async () => {
+      const source = resolvePdfSource(src);
+      if (!source) { if (!cancelled) { setIsLoading(false); setUseFallback(true); } return; }
       try {
-        let source: any;
-        if (src.startsWith('data:application/pdf;base64,')) {
-          const base64 = src.split(',')[1];
-          const binaryStr = atob(base64);
-          const bytes = new Uint8Array(binaryStr.length);
-          for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
-          source = { data: bytes };
-        } else {
-          source = src;
-        }
         const pdf = await pdfjs.getDocument(source).promise;
-        if (!cancelled) {
-          setPdfDoc(pdf);
-          setTotalPages(pdf.numPages);
-          setIsLoading(false);
-        }
+        if (!cancelled) { setPdfDoc(pdf); setTotalPages(pdf.numPages); setIsLoading(false); }
       } catch (e) {
-        console.error('PDF load error:', e);
-        if (!cancelled) setIsLoading(false);
+        console.warn('pdfjs load failed, showing fallback iframe:', e);
+        if (!cancelled) { setIsLoading(false); setUseFallback(true); }
       }
     };
     load();
     return () => { cancelled = true; };
   }, [src]);
 
-  // Render current page onto canvas — scale to fit container (no scroll)
+  // Render current page onto canvas — scale to fit container exactly (no scroll)
   useEffect(() => {
     if (!pdfDoc || !canvasRef.current) return;
     let cancelled = false;
-
     const render = async () => {
       try {
         const page = await pdfDoc.getPage(currentPage);
         if (cancelled) return;
         const container = canvasRef.current!.parentElement!;
-        const containerWidth = Math.max(container.clientWidth - 32, 300);
-        const containerHeight = Math.max(container.clientHeight - 32, 200);
+        const cw = Math.max(container.clientWidth - 32, 300);
+        const ch = Math.max(container.clientHeight - 32, 200);
         const unscaled = page.getViewport({ scale: 1 });
-        // Fit page inside container without any overflow (like "contain")
-        const scale = Math.min(containerWidth / unscaled.width, containerHeight / unscaled.height);
-        const viewport = page.getViewport({ scale });
+        const scale = Math.min(cw / unscaled.width, ch / unscaled.height);
+        const vp = page.getViewport({ scale });
         const canvas = canvasRef.current!;
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        await page.render({ canvasContext: canvas.getContext('2d')!, viewport }).promise;
-      } catch (e) {
-        console.error('PDF render error:', e);
-      }
+        canvas.width = vp.width;
+        canvas.height = vp.height;
+        await page.render({ canvasContext: canvas.getContext('2d')!, viewport: vp }).promise;
+      } catch (e) { console.error('PDF render error:', e); }
     };
     render();
     return () => { cancelled = true; };
@@ -92,53 +100,60 @@ function PdfPageViewer({ src }: { src: string }) {
   useEffect(() => {
     if (!pdfDoc) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
-        setCurrentPage(p => Math.min(totalPages, p + 1));
-      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-        setCurrentPage(p => Math.max(1, p - 1));
-      }
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') setCurrentPage(p => Math.min(totalPages, p + 1));
+      else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') setCurrentPage(p => Math.max(1, p - 1));
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [pdfDoc, totalPages]);
 
+  // Fallback: pdfjs couldn't load (CORS / auth), show native iframe
+  if (useFallback) {
+    return (
+      <div className="w-full h-full relative">
+        <iframe src={fallbackSrc} className="absolute inset-0 w-full h-full border-none" title="PDF Viewer" allowFullScreen />
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full bg-[#F5F7FA] rounded-[28px] overflow-hidden">
       {/* Navigation bar */}
-      <div className="flex items-center justify-between px-6 py-3 bg-white border-b border-gray-100 shrink-0">
+      <div className="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-100 shrink-0">
         <button
           onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
           disabled={currentPage <= 1 || isLoading}
-          className="w-10 h-10 flex items-center justify-center rounded-xl bg-gray-50 hover:bg-[#002D57] hover:text-white disabled:opacity-30 transition-all"
+          className="w-12 h-12 flex items-center justify-center rounded-2xl bg-gray-50 hover:bg-[#002D57] hover:text-white disabled:opacity-30 transition-all text-[#002D57]"
         >
-          <ChevronLeft size={18} />
+          <ChevronLeft size={22} />
         </button>
-        <span className="text-[11px] font-black uppercase tracking-widest text-[#002D57]">
-          {isLoading ? 'Загрузка PDF...' : `Страница ${currentPage} / ${totalPages}`}
+        <span className="text-xs font-black uppercase tracking-widest text-[#002D57]">
+          {isLoading ? 'Загрузка PDF...' : `Слайд ${currentPage} / ${totalPages}`}
         </span>
         <button
           onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
           disabled={currentPage >= totalPages || isLoading}
-          className="w-10 h-10 flex items-center justify-center rounded-xl bg-gray-50 hover:bg-[#002D57] hover:text-white disabled:opacity-30 transition-all"
+          className="w-12 h-12 flex items-center justify-center rounded-2xl bg-gray-50 hover:bg-[#002D57] hover:text-white disabled:opacity-30 transition-all text-[#002D57]"
         >
-          <ChevronRight size={18} />
+          <ChevronRight size={22} />
         </button>
       </div>
 
-      {/* Page canvas — overflow-hidden so the page never scrolls; scale is fit-to-container */}
-      <div className="flex-1 overflow-hidden flex items-center justify-center p-4">
+      {/* Page canvas — overflow-hidden, page fits exactly inside container */}
+      <div className="flex-1 overflow-hidden flex items-center justify-center p-4 bg-[#F5F7FA]">
         {isLoading ? (
-          <div className="flex items-center justify-center w-full h-full min-h-[300px]">
+          <div className="flex flex-col items-center justify-center gap-4">
             <div className="w-10 h-10 border-4 border-[#002D57]/20 border-t-[#002D57] rounded-full animate-spin" />
+            <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Загрузка PDF...</p>
           </div>
         ) : (
-          <canvas ref={canvasRef} className="max-w-full shadow-2xl rounded-lg" />
+          <canvas ref={canvasRef} className="max-w-full max-h-full shadow-2xl rounded-xl" />
         )}
       </div>
 
-      {/* Quick-jump dots for short decks */}
-      {totalPages > 1 && totalPages <= 20 && (
-        <div className="flex justify-center gap-1.5 py-3 shrink-0">
+      {/* Quick-jump dots */}
+      {totalPages > 1 && totalPages <= 30 && (
+        <div className="flex justify-center gap-1.5 py-3 shrink-0 flex-wrap px-4">
           {Array.from({ length: totalPages }, (_, i) => (
             <button
               key={i}
@@ -225,10 +240,17 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
     }
   };
 
-  // Detect PDF sources that should use the custom PdfPageViewer
-  const isPdfSrc = (url: string) =>
-    url.startsWith('data:application/pdf') ||
-    (!url.includes('drive.google.com') && !url.includes('docs.google.com') && url.toLowerCase().endsWith('.pdf'));
+  // Detect PDF sources that should use the custom PdfPageViewer.
+  // Strips query params first so Firebase Storage URLs like
+  // "...file.pdf?alt=media&token=xxx" are detected correctly.
+  const isPdfSrc = (url: string) => {
+    if (url.startsWith('data:application/pdf')) return true;
+    const path = url.split('?')[0].toLowerCase(); // strip query params
+    if (path.endsWith('.pdf')) return true;
+    // Google Drive file links (not Slides/Docs)
+    if (url.includes('drive.google.com/file/d/') && !url.includes('/presentation/')) return true;
+    return false;
+  };
 
   const getEmbedUrl = (rawUrl: string) => {
     if (rawUrl.includes('docs.google.com/presentation/d/')) {
@@ -258,9 +280,17 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
   const renderMedia = (url: string) => {
     if (!url) return null;
 
-    // Use custom PDF viewer for direct/base64 PDFs
+    // Use custom PDF viewer (slide-by-slide, no scroll)
     if (isPdfSrc(url)) {
-      return <PdfPageViewer src={url} />;
+      // Build the iframe fallback URL for cases where pdfjs can't load (CORS/auth)
+      let fallback = url;
+      if (url.includes('drive.google.com')) {
+        let id = '';
+        if (url.includes('/d/')) id = url.split('/d/')[1].split('/')[0];
+        else if (url.includes('id=')) id = url.split('id=')[1].split('&')[0];
+        if (id) fallback = `https://drive.google.com/file/d/${id}/preview`;
+      }
+      return <PdfPageViewer src={url} fallbackSrc={fallback} />;
     }
 
     const embedUrl = getEmbedUrl(url);
@@ -447,7 +477,7 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
                 {/* Media viewer — tall container, no fixed aspect ratio */}
                 {(course.fileUrl || currentLesson.fileUrl) && !showQuiz && (
                   <div className="mb-10 rounded-[32px] overflow-hidden border-2 border-gray-100 shadow-2xl bg-gray-50"
-                       style={{ height: '65vh', minHeight: 480 }}>
+                       style={{ height: '78vh', minHeight: 560 }}>
                     {renderMedia(currentLesson.fileUrl || course.fileUrl || '')}
                   </div>
                 )}
