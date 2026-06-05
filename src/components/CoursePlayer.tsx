@@ -152,7 +152,7 @@ function PdfPageViewer({ src, fallbackSrc }: { src: string; fallbackSrc: string 
       </div>
 
       {/* Quick-jump dots */}
-      {totalPages > 1 && totalPages <= 30 && (
+      {totalPages > 1 && (
         <div className="flex justify-center gap-1.5 py-3 shrink-0 flex-wrap px-4">
           {Array.from({ length: totalPages }, (_, i) => (
             <button
