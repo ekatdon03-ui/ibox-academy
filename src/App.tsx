@@ -333,7 +333,7 @@ export default function App() {
           currentUser={user}
         />
       );
-      default: return <TrainingView courses={courses} user={user} onSelectCourse={setSelectedCourse} />;
+      default: return <TrainingView courses={courses} user={user} onSelectCourse={setSelectedCourse} refreshTrigger={refreshTrigger} />;
     }
   };
 

@@ -26,7 +26,6 @@ export default function AuthView({ onLogin }: AuthViewProps) {
         position: 'Сотрудник iBOX',
         role: 'employee',
         avatar: user.photoURL || '',
-        score: 0,
         department: 'Общий отдел',
         assignedCourses: []
       });

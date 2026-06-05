@@ -607,7 +607,6 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
                         <th className="px-10 py-6 text-[10px] font-black uppercase tracking-widest text-gray-400">Сотрудник</th>
                         <th className="px-10 py-6 text-[10px] font-black uppercase tracking-widest text-gray-400">Роль/Должность</th>
                         <th className="px-10 py-6 text-[10px] font-black uppercase tracking-widest text-gray-400">Курсы</th>
-                        <th className="px-10 py-6 text-[10px] font-black uppercase tracking-widest text-gray-400">Рейтинг</th>
                         <th className="px-10 py-6 text-[10px] font-black uppercase tracking-widest text-gray-400">Действия</th>
                       </tr>
                     </thead>
@@ -638,10 +637,6 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
                                   <div className="w-8 h-8 rounded-lg bg-gray-100 border-2 border-white flex items-center justify-center text-gray-400 text-[8px] font-bold">+{user.assignedCourses!.length - 3}</div>
                                 )}
                              </div>
-                          </td>
-                          <td className="px-10 py-8">
-                             <p className="font-display font-black text-xl text-[#002D57]">{user.score}</p>
-                             <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">XP</p>
                           </td>
                           <td className="px-10 py-8 text-right">
                              <div className="flex items-center justify-end gap-2">
