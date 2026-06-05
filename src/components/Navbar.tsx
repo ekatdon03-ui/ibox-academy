@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { UserProfile } from '../types';
+import { UserProfile, Course } from '../types';
 import { Bell, Search, X, BookOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { contentService } from '../services/contentService';
@@ -8,13 +8,43 @@ import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestor
 
 interface NavbarProps {
   user: UserProfile;
+  courses?: Course[];
+  onSelectCourse?: (course: Course) => void;
+  onNavigate?: (tab: string) => void;
 }
 
-export default function Navbar({ user }: NavbarProps) {
+export default function Navbar({ user, courses = [], onSelectCourse, onNavigate }: NavbarProps) {
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [banner, setBanner] = useState<string | null>(null);
   const initialLoadDone = useRef(false);
+
+  // ── Search state ──────────────────────────────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showResults, setShowResults] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
+
+  const searchResults = searchQuery.trim().length >= 2
+    ? courses.filter(c => {
+        const q = searchQuery.toLowerCase();
+        return (
+          c.title?.toLowerCase().includes(q) ||
+          c.description?.toLowerCase().includes(q) ||
+          c.category?.toLowerCase().includes(q)
+        );
+      }).slice(0, 6)
+    : [];
+
+  // Close search dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setShowResults(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
   useEffect(() => {
     if (!user.id) return;
@@ -111,13 +141,67 @@ export default function Navbar({ user }: NavbarProps) {
       </AnimatePresence>
 
     <header className="h-20 bg-white/80 backdrop-blur-md border-b border-gray-100 flex items-center justify-between px-10 fixed top-0 right-0 left-72 z-40">
-      <div className="flex items-center gap-4 bg-[#F5F7FA] px-6 py-3 rounded-2xl w-96 border border-gray-50 focus-within:border-[#00A3FF] transition-all">
-        <Search size={16} className="text-gray-300" />
-        <input 
-          type="text" 
-          placeholder="ПОИСК ПО АКАДЕМИИ..." 
-          className="bg-transparent border-none outline-none w-full text-[10px] font-black uppercase tracking-[0.2em] placeholder:text-gray-300 text-[#002D57]"
-        />
+      {/* Search */}
+      <div ref={searchRef} className="relative w-96">
+        <div className="flex items-center gap-4 bg-[#F5F7FA] px-6 py-3 rounded-2xl border border-gray-50 focus-within:border-[#00A3FF] transition-all">
+          <Search size={16} className="text-gray-300 shrink-0" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => { setSearchQuery(e.target.value); setShowResults(true); }}
+            onFocus={() => setShowResults(true)}
+            placeholder="ПОИСК ПО АКАДЕМИИ..."
+            className="bg-transparent border-none outline-none w-full text-[10px] font-black uppercase tracking-[0.2em] placeholder:text-gray-300 text-[#002D57]"
+          />
+          {searchQuery && (
+            <button onClick={() => { setSearchQuery(''); setShowResults(false); }} className="text-gray-300 hover:text-[#002D57] transition-colors shrink-0">
+              <X size={14} />
+            </button>
+          )}
+        </div>
+
+        {/* Results dropdown */}
+        <AnimatePresence>
+          {showResults && searchResults.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 6 }}
+              className="absolute top-full mt-2 left-0 right-0 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden z-50"
+            >
+              {searchResults.map(course => (
+                <button
+                  key={course.id}
+                  onClick={() => {
+                    setSearchQuery('');
+                    setShowResults(false);
+                    if (onNavigate) onNavigate('training');
+                    if (onSelectCourse) onSelectCourse(course);
+                  }}
+                  className="w-full flex items-center gap-4 px-5 py-4 hover:bg-[#F5F7FA] transition-colors text-left"
+                >
+                  <div className="w-9 h-9 rounded-xl bg-[#002D57] flex items-center justify-center shrink-0">
+                    <BookOpen size={14} className="text-white" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-black uppercase tracking-tight text-[#002D57] truncate">{course.title}</p>
+                    <p className="text-[9px] font-bold text-[#00A3FF] uppercase tracking-widest">{course.category}</p>
+                  </div>
+                </button>
+              ))}
+            </motion.div>
+          )}
+          {showResults && searchQuery.trim().length >= 2 && searchResults.length === 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 6 }}
+              className="absolute top-full mt-2 left-0 right-0 bg-white rounded-2xl shadow-2xl border border-gray-100 px-5 py-4 z-50"
+            >
+              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Ничего не найдено</p>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       <div className="flex items-center gap-6">

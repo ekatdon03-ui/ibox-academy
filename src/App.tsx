@@ -341,7 +341,7 @@ export default function App() {
     <div className="h-screen w-full flex bg-ibox-bg relative overflow-hidden">
       <Sidebar user={user} activeTab={activeTab} setActiveTab={setActiveTab} onLogout={handleLogout} />
       <div className="flex-1 flex flex-col pl-16">
-        <Navbar user={user} />
+        <Navbar user={user} courses={courses} onSelectCourse={setSelectedCourse} onNavigate={setActiveTab} />
         <main className="flex-1 mt-20 overflow-y-auto">{renderView()}</main>
       </div>
       <AIAssistant allCourses={courses} glossary={glossary} />
