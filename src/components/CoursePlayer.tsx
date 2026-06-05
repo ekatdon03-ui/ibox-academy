@@ -60,7 +60,7 @@ function PdfPageViewer({ src }: { src: string }) {
     return () => { cancelled = true; };
   }, [src]);
 
-  // Render current page onto canvas
+  // Render current page onto canvas — scale to fit container (no scroll)
   useEffect(() => {
     if (!pdfDoc || !canvasRef.current) return;
     let cancelled = false;
@@ -70,9 +70,11 @@ function PdfPageViewer({ src }: { src: string }) {
         const page = await pdfDoc.getPage(currentPage);
         if (cancelled) return;
         const container = canvasRef.current!.parentElement!;
-        const containerWidth = Math.max(container.clientWidth - 32, 400);
+        const containerWidth = Math.max(container.clientWidth - 32, 300);
+        const containerHeight = Math.max(container.clientHeight - 32, 200);
         const unscaled = page.getViewport({ scale: 1 });
-        const scale = containerWidth / unscaled.width;
+        // Fit page inside container without any overflow (like "contain")
+        const scale = Math.min(containerWidth / unscaled.width, containerHeight / unscaled.height);
         const viewport = page.getViewport({ scale });
         const canvas = canvasRef.current!;
         canvas.width = viewport.width;
@@ -85,6 +87,20 @@ function PdfPageViewer({ src }: { src: string }) {
     render();
     return () => { cancelled = true; };
   }, [pdfDoc, currentPage]);
+
+  // Keyboard arrow navigation
+  useEffect(() => {
+    if (!pdfDoc) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+        setCurrentPage(p => Math.min(totalPages, p + 1));
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        setCurrentPage(p => Math.max(1, p - 1));
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [pdfDoc, totalPages]);
 
   return (
     <div className="flex flex-col h-full bg-[#F5F7FA] rounded-[28px] overflow-hidden">
@@ -109,8 +125,8 @@ function PdfPageViewer({ src }: { src: string }) {
         </button>
       </div>
 
-      {/* Page canvas */}
-      <div className="flex-1 overflow-auto flex items-start justify-center p-4">
+      {/* Page canvas — overflow-hidden so the page never scrolls; scale is fit-to-container */}
+      <div className="flex-1 overflow-hidden flex items-center justify-center p-4">
         {isLoading ? (
           <div className="flex items-center justify-center w-full h-full min-h-[300px]">
             <div className="w-10 h-10 border-4 border-[#002D57]/20 border-t-[#002D57] rounded-full animate-spin" />

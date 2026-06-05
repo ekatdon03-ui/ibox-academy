@@ -52,12 +52,20 @@ export default function ProfileView({ user, onLogout, onUpdateUser, courses }: P
     load();
   }, [user.id]);
 
-  const avgScore = results.length > 0 
-    ? Math.round(results.reduce((acc, curr) => acc + curr.score, 0) / results.length) 
+  // Deduplicate by courseId — keep best score per course so retakes don't distort average
+  const bestPerCourse = new Map<string, CourseResult>();
+  results.forEach(r => {
+    const prev = bestPerCourse.get(r.courseId);
+    if (!prev || r.score > prev.score) bestPerCourse.set(r.courseId, r);
+  });
+  const uniqueResults = Array.from(bestPerCourse.values());
+
+  const avgScore = uniqueResults.length > 0
+    ? Math.round(uniqueResults.reduce((acc, curr) => acc + curr.score, 0) / uniqueResults.length)
     : 0;
 
   const stats = [
-    { label: 'Курсов пройдено', value: results.length.toString(), icon: Star, color: 'text-yellow-500', bg: 'bg-yellow-50' },
+    { label: 'Курсов пройдено', value: uniqueResults.length.toString(), icon: Star, color: 'text-yellow-500', bg: 'bg-yellow-50' },
     { label: 'Средний балл', value: `${avgScore}%`, icon: Award, color: 'text-[#00A3FF]', bg: 'bg-[#00A3FF]/5' },
     { label: 'ИИ тренировок', value: trainerHistory.length.toString(), icon: TrendingUp, color: 'text-green-500', bg: 'bg-green-50' },
   ];
