@@ -32,7 +32,9 @@ export interface Course {
   hiddenFromUsers?: boolean;
   assignedToUsers?: string[];
   assignedToDepartments?: string[]; // All users from these depts auto-get access
-  hasSimulator?: boolean; // Whether AI simulator is available for this course (default: true)
+  hasSimulator?: boolean; // legacy — use simulatorMode instead
+  simulatorMode?: 'off' | 'optional' | 'required'; // off=disabled, optional=separate tab, required=mandatory after test
+  simulatorTurns?: number; // Number of dialogue turns (2-6, default 3)
   testMode?: 'none' | 'final' | 'per_lesson' | 'both'; // When quizzes appear (default: 'final')
 }
 

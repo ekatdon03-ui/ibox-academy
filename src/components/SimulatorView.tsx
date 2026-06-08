@@ -91,20 +91,20 @@ export default function SimulatorView({ courses, user, onRefreshUser }: Simulato
     
     const nextTurnCount = turnCount + 1;
     setTurnCount(nextTurnCount);
+    const maxTurns = selectedCourse.simulatorTurns ?? 3;
 
     try {
       const context = buildRichContext(selectedCourse, selectedLessonId);
       const history = messages.slice(-20);
 
-      // On the 3rd turn, tell AI to wrap up — but we finish regardless of SUCCESS keyword
-      const finalHint = nextTurnCount >= 3
+      const finalHint = nextTurnCount >= maxTurns
         ? "\n[СИСТЕМНОЕ: Это последний ход тренировки. Подведи итог ответа ученика и заверши сессию.]"
         : "";
 
       const responseRaw = await aiService.trainingTutor(userText + finalHint, context, history, settings?.tutorPrompt);
 
       const cleanResponse = (responseRaw || "")
-        .replace(/success/gi, '')
+        .replace(/\bsuccess\b/gi, '')
         .split('\n').filter(line => line.trim()).join('\n')
         .trim();
 
@@ -114,8 +114,7 @@ export default function SimulatorView({ courses, user, onRefreshUser }: Simulato
       ];
       setMessages(updatedMessages);
 
-      // Finish after exactly 3 user turns OR if AI explicitly signals success
-      const isFinishing = nextTurnCount >= 3 || responseRaw.toLowerCase().includes('success');
+      const isFinishing = nextTurnCount >= maxTurns || responseRaw.toLowerCase().includes('success');
       if (isFinishing) {
         await handleFinishWithResponse(cleanResponse, context, updatedMessages);
       }
@@ -170,7 +169,7 @@ export default function SimulatorView({ courses, user, onRefreshUser }: Simulato
             <p className="text-[10px] font-bold uppercase tracking-widest text-[#00A3FF] mt-4">Выберите курс для отработки навыков в режиме диалога</p>
           </header>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {courses.filter(c => c.hasSimulator !== false).map(course => (
+            {courses.filter(c => (c.simulatorMode ?? (c.hasSimulator === false ? 'off' : 'optional')) !== 'off').map(course => (
               <button
                 key={course.id}
                 onClick={() => setSelectedCourse(course)}
@@ -246,7 +245,7 @@ export default function SimulatorView({ courses, user, onRefreshUser }: Simulato
              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Тренажер для отработки навыков</p>
           </div>
           <div className="flex items-center gap-4">
-             <p className="text-[10px] font-black uppercase tracking-widest text-[#00A3FF]">Ход {turnCount} из 3</p>
+             <p className="text-[10px] font-black uppercase tracking-widest text-[#00A3FF]">Ход {turnCount} из {selectedCourse.simulatorTurns ?? 3}</p>
              <button 
                onClick={() => { setSelectedCourse(null); setSelectedLessonId(null); setMessages([]); setIsSuccess(false); }}
               className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-gray-300 hover:text-red-500 transition-all border border-gray-100"

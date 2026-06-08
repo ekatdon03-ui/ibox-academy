@@ -1331,7 +1331,9 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
         type: courseType,
         fileUrl,
         isPublic,
-        hasSimulator: initialData?.hasSimulator ?? true,
+        hasSimulator: (initialData?.simulatorMode ?? initialData?.hasSimulator) !== false && (initialData?.simulatorMode ?? 'optional') !== 'off',
+        simulatorMode: initialData?.simulatorMode ?? (initialData?.hasSimulator === false ? 'off' : 'optional'),
+        simulatorTurns: initialData?.simulatorTurns ?? 3,
         testMode: initialData?.testMode ?? 'final',
         thumbnail: thumbnail || (courseType === 'video' ? 'https://images.unsplash.com/photo-1485846234645-a62644f84728?q=80&w=800' : 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=800'),
         testConfig: initialData?.testConfig || { type: 'none', questions: [] },
@@ -1733,7 +1735,13 @@ function TestEditor({ course, onSave, showToast }: {
   onSave: (updates: Partial<Course>) => void;
   showToast: (msg: string, isError?: boolean) => void;
 }) {
-  const [hasSimulator, setHasSimulator] = useState(course.hasSimulator !== false);
+  // Resolve legacy hasSimulator → simulatorMode
+  const resolveSimMode = (): 'off' | 'optional' | 'required' => {
+    if (course.simulatorMode) return course.simulatorMode;
+    return course.hasSimulator === false ? 'off' : 'optional';
+  };
+  const [simulatorMode, setSimulatorMode] = useState<'off' | 'optional' | 'required'>(resolveSimMode());
+  const [simulatorTurns, setSimulatorTurns] = useState<number>(course.simulatorTurns ?? 3);
   const [testMode, setTestMode] = useState<'none' | 'final' | 'per_lesson' | 'both'>(course.testMode || 'final');
   const [questions, setQuestions] = useState<QuizQuestion[]>(course.testConfig?.questions || []);
   const [lessons, setLessons] = useState<Lesson[]>(course.lessons || []);
@@ -1753,7 +1761,9 @@ function TestEditor({ course, onSave, showToast }: {
 
   const handleSave = () => {
     const updates: Partial<Course> = {
-      hasSimulator,
+      hasSimulator: simulatorMode !== 'off',
+      simulatorMode,
+      simulatorTurns,
       testMode,
       lessons,
       testConfig: { type: testMode === 'none' ? 'none' : 'manual', questions },
@@ -1768,18 +1778,49 @@ function TestEditor({ course, onSave, showToast }: {
     <div className="flex-1 flex flex-col min-h-0">
       <div className="flex-1 overflow-y-auto pr-4 custom-scrollbar space-y-8">
 
-        {/* ── Simulator toggle ── */}
-        <div className="flex items-center justify-between p-6 bg-gray-50 rounded-[28px] border border-gray-100">
+        {/* ── Simulator mode ── */}
+        <div className="p-6 bg-gray-50 rounded-[28px] border border-gray-100 space-y-4">
           <div>
             <p className="font-display font-black uppercase text-sm tracking-tight text-[#002D57]">ИИ Тренажер</p>
-            <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">Симуляция диалога с ИИ-наставником по этому курсу</p>
+            <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">Симуляция диалога сотрудника с ИИ-наставником</p>
           </div>
-          <button
-            onClick={() => setHasSimulator(!hasSimulator)}
-            className={`w-16 h-8 rounded-2xl relative transition-all shadow-inner shrink-0 ${hasSimulator ? 'bg-green-500' : 'bg-gray-300'}`}
-          >
-            <div className={`absolute top-1 w-6 h-6 bg-white rounded-xl shadow-md transition-all ${hasSimulator ? 'left-9' : 'left-1'}`} />
-          </button>
+          <div className="grid grid-cols-3 gap-3">
+            {([
+              { id: 'off',      label: 'Отключён',           desc: 'Тренажёр недоступен' },
+              { id: 'optional', label: 'Отдельная вкладка',  desc: 'Доступен по желанию' },
+              { id: 'required', label: 'Обязательный',       desc: 'Запускается после теста' },
+            ] as const).map(opt => (
+              <button
+                key={opt.id}
+                onClick={() => setSimulatorMode(opt.id)}
+                className={`p-4 rounded-2xl text-left border-2 transition-all ${simulatorMode === opt.id ? 'border-[#002D57] bg-[#002D57]/5' : 'border-gray-100 hover:border-gray-300'}`}
+              >
+                <p className={`text-[10px] font-black uppercase tracking-widest leading-tight ${simulatorMode === opt.id ? 'text-[#002D57]' : 'text-gray-400'}`}>{opt.label}</p>
+                <p className="text-[8px] font-bold text-gray-400 mt-1 leading-tight">{opt.desc}</p>
+              </button>
+            ))}
+          </div>
+
+          {/* Turn count — only shown when simulator is enabled */}
+          {simulatorMode !== 'off' && (
+            <div className="flex items-center justify-between pt-2">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-[#002D57]">Количество ходов</p>
+                <p className="text-[8px] font-bold text-gray-400 mt-0.5">Диалогов сотрудника с наставником</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {[2, 3, 4, 5, 6].map(n => (
+                  <button
+                    key={n}
+                    onClick={() => setSimulatorTurns(n)}
+                    className={`w-9 h-9 rounded-xl font-black text-sm transition-all ${simulatorTurns === n ? 'bg-[#002D57] text-white shadow-lg' : 'bg-white border border-gray-200 text-gray-400 hover:border-[#002D57]'}`}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ── Test mode ── */}

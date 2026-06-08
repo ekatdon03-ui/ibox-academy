@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronLeft, ChevronRight, CheckCircle, HelpCircle, Trophy, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CheckCircle, HelpCircle, Trophy, X, Send, Zap } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 import { Course, UserProfile } from '../types';
 import { contentService } from '../services/contentService';
+import { aiService } from '../services/aiService';
 
 interface CoursePlayerProps {
   course: Course;
@@ -14,6 +15,172 @@ interface CoursePlayerProps {
 // Minimum percentage required to pass a course quiz
 const PASS_THRESHOLD = 80;
 
+// ─── Shared: build rich AI context from course data ───────────────────────────
+function buildRichContext(course: Course): string {
+  let ctx = `--- КУРС: ${course.title} ---\nОПИСАНИЕ: ${course.description}\n\n`;
+  ctx += 'СОДЕРЖАНИЕ УРОКОВ:\n';
+  course.lessons.forEach((l, i) => {
+    ctx += `УРОК ${i + 1}: ${l.title}\n${l.content}\n`;
+    if (l.aiKnowledge) ctx += `БАЗА ЗНАНИЙ: ${l.aiKnowledge}\n`;
+    ctx += '\n';
+  });
+  return ctx;
+}
+
+// ─── Inline simulator (embedded inside CoursePlayer after test) ───────────────
+function EmbeddedSimulator({
+  course, user, quizScore,
+  onComplete,
+}: {
+  course: Course;
+  user: UserProfile;
+  quizScore: number;
+  onComplete: (simScore: number, feedback: string) => void;
+}) {
+  const maxTurns = course.simulatorTurns ?? 3;
+  const [messages, setMessages] = useState<{ role: 'user' | 'model'; parts: { text: string }[] }[]>([]);
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [turnCount, setTurnCount] = useState(0);
+  const [settings, setSettings] = useState<any>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const startedRef = useRef(false);
+
+  useEffect(() => { contentService.getAISettings().then(setSettings).catch(() => {}); }, []);
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages, isLoading]);
+
+  // Auto-start once settings loaded
+  useEffect(() => {
+    if (startedRef.current || isLoading) return;
+    startedRef.current = true;
+    setIsLoading(true);
+    const context = buildRichContext(course);
+    aiService.trainingTutor(
+      'Начни тренировку. Представься и задай первую конкретную рабочую ситуацию по материалам этого курса.',
+      context, [], settings?.tutorPrompt
+    ).then(response => {
+      setMessages([{ role: 'model', parts: [{ text: response || 'Привет! Начнём тренировку.' }] }]);
+    }).catch(() => {
+      setMessages([{ role: 'model', parts: [{ text: 'Привет! Начнём тренировку по курсу.' }] }]);
+    }).finally(() => setIsLoading(false));
+  }, [settings]);  // eslint-disable-line
+
+  const handleSend = async () => {
+    if (!input.trim() || isLoading) return;
+    const text = input.trim();
+    const next = [...messages, { role: 'user' as const, parts: [{ text }] }];
+    setMessages(next);
+    setInput('');
+    setIsLoading(true);
+    const nextTurn = turnCount + 1;
+    setTurnCount(nextTurn);
+
+    try {
+      const context = buildRichContext(course);
+      const finalHint = nextTurn >= maxTurns
+        ? '\n[СИСТЕМНОЕ: Это последний ход. Подведи итог и заверши сессию.]' : '';
+      const raw = await aiService.trainingTutor(text + finalHint, context, messages.slice(-20), settings?.tutorPrompt);
+      const clean = (raw || '').replace(/\bsuccess\b/gi, '').split('\n').filter(l => l.trim()).join('\n').trim();
+      const updated = [...next, { role: 'model' as const, parts: [{ text: clean }] }];
+      setMessages(updated);
+
+      if (nextTurn >= maxTurns || raw.toLowerCase().includes('success')) {
+        setIsLoading(true);
+        const evalResult = await aiService.evaluateSimulatorSession(updated, context).catch(() => ({ score: 70, feedback: 'Тренировка завершена.' }));
+        // Save session
+        if (user.id) {
+          contentService.saveSimulatorSession({
+            userId: user.id, courseId: course.id, lessonId: '',
+            score: evalResult.score, feedback: evalResult.feedback,
+            timestamp: new Date().toISOString(), chatHistory: updated,
+          }).catch(() => {});
+        }
+        onComplete(evalResult.score, evalResult.feedback);
+      }
+    } catch {
+      setMessages(p => [...p, { role: 'model', parts: [{ text: 'Ошибка связи. Попробуй ещё раз.' }] }]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <motion.div key="embedded-sim" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+      className="max-w-2xl mx-auto px-10 py-10 w-full">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-3xl font-display font-black uppercase tracking-tight text-[#002D57]">ИИ Тренажёр</h2>
+          <p className="text-[9px] font-black uppercase tracking-widest text-[#00A3FF] mt-1">
+            Обязательный · ход {Math.min(turnCount + 1, maxTurns)} из {maxTurns}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {Array.from({ length: maxTurns }, (_, i) => (
+            <div key={i} className={`w-2 h-2 rounded-full transition-all ${i < turnCount ? 'bg-[#002D57]' : 'bg-gray-200'}`} />
+          ))}
+        </div>
+      </div>
+
+      {/* Quiz score badge */}
+      <div className="mb-4 flex items-center gap-3 bg-green-50 border border-green-100 rounded-2xl px-5 py-3">
+        <CheckCircle size={16} className="text-green-500 shrink-0" />
+        <p className="text-xs font-black uppercase tracking-widest text-green-700">Тест пройден · {quizScore}% · Теперь закрепи знания на практике</p>
+      </div>
+
+      {/* Chat */}
+      <div className="bg-white rounded-[32px] border border-gray-100 shadow-xl overflow-hidden flex flex-col" style={{ height: '52vh', minHeight: 380 }}>
+        <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-4">
+          {messages.map((msg, idx) => (
+            <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[85%] px-5 py-4 rounded-[20px] text-sm leading-relaxed font-medium shadow-sm ${
+                msg.role === 'user' ? 'bg-[#002D57] text-white rounded-tr-none' : 'bg-[#F5F7FA] text-[#002D57] rounded-tl-none'
+              }`}>
+                {msg.role === 'user' ? msg.parts[0].text : (
+                  <div className="markdown-content">
+                    <ReactMarkdown>{msg.parts[0].text.replace('[SUCCESS]', '')}</ReactMarkdown>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+          {isLoading && (
+            <div className="flex justify-start">
+              <div className="bg-[#F5F7FA] px-5 py-4 rounded-[20px] rounded-tl-none">
+                <div className="flex gap-1.5">
+                  {[0, 0.2, 0.4].map((d, i) => (
+                    <motion.div key={i} animate={{ opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: d }}
+                      className="w-2 h-2 bg-[#002D57]/30 rounded-full" />
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="p-4 border-t border-gray-100 bg-gray-50/50">
+          <div className="relative">
+            <input
+              type="text" value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
+              placeholder="Ваш ответ..."
+              disabled={isLoading}
+              className="w-full bg-white rounded-2xl py-4 pl-5 pr-14 outline-none shadow-sm border border-gray-100 font-medium text-sm focus:ring-2 focus:ring-[#002D57]/10 transition-all disabled:opacity-50"
+            />
+            <button onClick={handleSend} disabled={isLoading || !input.trim()}
+              className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 bg-[#002D57] text-white rounded-xl flex items-center justify-center hover:bg-[#00A3FF] transition-all disabled:opacity-30">
+              <Send size={15} />
+            </button>
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 // ─── Course player component ──────────────────────────────────────────────────
 export default function CoursePlayer({ course, user, onClose }: CoursePlayerProps) {
   // ── All hooks first (Rules of Hooks — never call hooks after a return) ──
@@ -23,6 +190,10 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
   const [selectedAnswers, setSelectedAnswers] = useState<number[]>([]);
   const [score, setScore] = useState(0);
   const [isCompleted, setIsCompleted] = useState(false);
+  // Simulator phase: 'off' = not required, 'pending' = waiting to start, 'running' = chat active, 'done' = completed
+  const [simPhase, setSimPhase] = useState<'off' | 'pending' | 'running' | 'done'>('off');
+  const [simScore, setSimScore] = useState(0);
+  const [simFeedback, setSimFeedback] = useState('');
 
   const showQuiz = quizType !== null;
   const testMode = course.testMode ?? 'final';
@@ -203,15 +374,31 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
     setScore(finalScore);
     setQuizFinished(true);
 
+    const simRequired = course.simulatorMode === 'required' && finalScore >= PASS_THRESHOLD;
+    if (simRequired) setSimPhase('pending');
+
     try {
       if (user.id && course.id) {
         const lastLessonId = lessons[lessons.length - 1].id;
         if (finalScore >= PASS_THRESHOLD) {
           await contentService.updateLessonProgress(user.id, course.id, lastLessonId, true, lessons.length);
-          await contentService.saveResult({ userId: user.id, courseId: course.id, score: finalScore, progress: 100, timestamp: new Date().toISOString() });
+          await contentService.saveResult({ userId: user.id, courseId: course.id, score: finalScore, progress: simRequired ? 50 : 100, timestamp: new Date().toISOString() });
         } else {
           await contentService.saveResult({ userId: user.id, courseId: course.id, score: finalScore, progress: 50, timestamp: new Date().toISOString() });
         }
+      }
+    } catch (e) {}
+  };
+
+  // Called when inline simulator finishes
+  const handleSimComplete = async (sScore: number, sFeedback: string) => {
+    setSimScore(sScore);
+    setSimFeedback(sFeedback);
+    setSimPhase('done');
+    // Update result to 100% progress once sim is done
+    try {
+      if (user.id && course.id) {
+        await contentService.saveResult({ userId: user.id, courseId: course.id, score, progress: 100, timestamp: new Date().toISOString() });
       }
     } catch (e) {}
   };
@@ -383,7 +570,62 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
                   {quizType === 'lesson' ? 'Продолжить' : 'Завершить курс и отправить результат'}
                 </button>
               </motion.div>
+            ) : simPhase === 'pending' ? (
+              /* ── Transition: quiz passed, simulator required ── */
+              <motion.div key="sim-pending" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+                className="max-w-xl mx-auto py-20 px-16 text-center">
+                <div className="w-28 h-28 rounded-[40px] bg-green-100 text-green-600 flex items-center justify-center mx-auto mb-10 shadow-2xl">
+                  <CheckCircle size={48} />
+                </div>
+                <h2 className="text-5xl font-display font-black uppercase mb-3 tracking-tighter text-[#002D57]">{score}%</h2>
+                <p className="text-xs font-black uppercase tracking-widest text-green-500 mb-6">Тест пройден!</p>
+                <p className="text-base font-bold text-gray-400 mb-12 leading-relaxed">
+                  Последний шаг — закрепи знания на практике в ИИ-тренажёре. Без него курс не засчитывается.
+                </p>
+                <button
+                  onClick={() => setSimPhase('running')}
+                  className="w-full py-6 bg-[#002D57] text-white rounded-3xl font-display font-black uppercase tracking-widest shadow-xl hover:bg-[#00A3FF] transition-all flex items-center justify-center gap-3"
+                >
+                  <Zap size={20} /> Начать тренажёр
+                </button>
+              </motion.div>
+
+            ) : simPhase === 'running' ? (
+              /* ── Inline simulator chat ── */
+              <EmbeddedSimulator
+                course={course} user={user} quizScore={score}
+                onComplete={handleSimComplete}
+              />
+
+            ) : simPhase === 'done' ? (
+              /* ── Final screen: quiz + sim both done ── */
+              <motion.div key="sim-done" initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                className="max-w-xl mx-auto py-16 px-16 text-center">
+                <div className="w-28 h-28 rounded-[40px] bg-[#002D57] text-white flex items-center justify-center mx-auto mb-10 shadow-2xl">
+                  <Trophy size={48} />
+                </div>
+                <h2 className="text-5xl font-display font-black uppercase mb-3 tracking-tighter text-[#002D57]">Курс завершён!</h2>
+                <p className="text-xs font-black uppercase tracking-widest text-[#00A3FF] mb-10">Все этапы пройдены</p>
+                <div className="grid grid-cols-2 gap-4 mb-10">
+                  <div className="bg-[#F5F7FA] rounded-2xl p-5">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 mb-1">Тест</p>
+                    <p className="text-3xl font-display font-black text-[#002D57]">{score}%</p>
+                  </div>
+                  <div className={`rounded-2xl p-5 ${simScore >= 70 ? 'bg-green-50' : 'bg-orange-50'}`}>
+                    <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 mb-1">Тренажёр</p>
+                    <p className={`text-3xl font-display font-black ${simScore >= 70 ? 'text-green-600' : 'text-orange-500'}`}>{simScore}/100</p>
+                  </div>
+                </div>
+                {simFeedback && (
+                  <p className="text-sm font-medium text-gray-500 mb-10 leading-relaxed text-left bg-gray-50 rounded-2xl p-5">{simFeedback}</p>
+                )}
+                <button onClick={onClose} className="w-full py-6 bg-[#002D57] text-white rounded-3xl font-display font-black uppercase tracking-widest shadow-xl hover:bg-[#00A3FF] transition-all">
+                  В личный кабинет
+                </button>
+              </motion.div>
+
             ) : (
+              /* ── Normal result screen (no required sim) ── */
               <motion.div
                 key="result"
                 initial={{ scale: 0.9, opacity: 0 }}
@@ -408,7 +650,7 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
                   </button>
                   {score < PASS_THRESHOLD && (
                     <button
-                      onClick={() => { setScore(0); setQuizFinished(false); setSelectedAnswers([]); setQuizType(null); setCurrentLessonIdx(0); }}
+                      onClick={() => { setScore(0); setQuizFinished(false); setSelectedAnswers([]); setQuizType(null); setCurrentLessonIdx(0); setSimPhase('off'); }}
                       className="w-full py-6 border-2 border-gray-100 rounded-3xl font-display font-black uppercase tracking-widest text-gray-400 hover:text-[#002D57] transition-all"
                     >
                       Пройти заново
