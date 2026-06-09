@@ -184,16 +184,26 @@ export const contentService = {
   },
 
   async markNotificationRead(id: string) {
-    const docRef = doc(db, NOTIFICATIONS_COLLECTION, id);
-    await updateDoc(docRef, { read: true });
+    try {
+      const docRef = doc(db, NOTIFICATIONS_COLLECTION, id);
+      await updateDoc(docRef, { read: true });
+    } catch (e) {
+      console.warn('[notifications] markRead failed:', e);
+    }
   },
 
-  async markAllNotificationsRead(userId: string) {
-    const q = query(collection(db, NOTIFICATIONS_COLLECTION), where('userId', '==', userId), where('read', '==', false));
-    const snapshot = await getDocs(q);
-    const batch = writeBatch(db);
-    snapshot.docs.forEach(d => batch.update(d.ref, { read: true }));
-    await batch.commit();
+  // Pass ids from component state — avoids compound index on (userId, read)
+  async markNotificationsReadByIds(ids: string[]) {
+    if (!ids.length) return;
+    try {
+      const batch = writeBatch(db);
+      for (const id of ids) {
+        batch.update(doc(db, NOTIFICATIONS_COLLECTION, id), { read: true });
+      }
+      await batch.commit();
+    } catch (e) {
+      console.warn('[notifications] markAllRead failed:', e);
+    }
   },
 
   async getAISettings(): Promise<AISettings> {

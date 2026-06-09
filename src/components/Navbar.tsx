@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserProfile, Course } from '../types';
 import { Bell, Search, X, BookOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { contentService } from '../services/contentService';
 import { db } from '../lib/firebase';
-import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 
 interface NavbarProps {
   user: UserProfile;
@@ -17,7 +17,8 @@ export default function Navbar({ user, courses = [], onSelectCourse, onNavigate 
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [banner, setBanner] = useState<string | null>(null);
-  const initialLoadDone = useRef(false);
+  // Use sessionStorage key so banner fires at most once per browser session per user
+  const bannerShownKey = `notif_banner_shown_${user.id}`;
 
   // ── Search state ──────────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState('');
@@ -49,54 +50,50 @@ export default function Navbar({ user, courses = [], onSelectCourse, onNavigate 
   useEffect(() => {
     if (!user.id) return;
 
-    // Real-time listener — updates instantly when admin assigns a course
-    const q = query(
-      collection(db, 'notifications'),
-      where('userId', '==', user.id),
-      orderBy('createdAt', 'desc')
-    );
+    const toItem = (d: any) => {
+      const data = typeof d.data === 'function' ? d.data() : d;
+      return {
+        id: d.id ?? data.id,
+        ...data,
+        time: data.createdAt?.seconds
+          ? new Date(data.createdAt.seconds * 1000).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+          : 'Только что'
+      };
+    };
 
-    const unsub = onSnapshot(q, (snap) => {
-      const items = snap.docs.map(d => {
-        const data = d.data();
-        return {
-          id: d.id,
-          ...data,
-          time: data.createdAt?.seconds
-            ? new Date(data.createdAt.seconds * 1000).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
-            : 'Только что'
-        };
-      });
-      setNotifications(items);
+    const handleItems = (items: any[]) => {
+      // Sort client-side — no composite index required
+      const sorted = [...items].sort((a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0));
+      setNotifications(sorted);
 
-      // Show banner on first load if there are unread notifications
-      if (!initialLoadDone.current) {
-        initialLoadDone.current = true;
-        const unread = items.filter(n => !n.read);
+      // Show banner only once per session (sessionStorage persists across remounts)
+      const alreadyShown = sessionStorage.getItem(bannerShownKey);
+      if (!alreadyShown) {
+        const unread = sorted.filter(n => !n.read);
         if (unread.length > 0) {
+          sessionStorage.setItem(bannerShownKey, '1');
           setBanner(unread.length === 1
             ? `У вас новое уведомление: ${unread[0].title}`
-            : `У вас ${unread.length} новых уведомления`
+            : `У вас ${unread.length} новых уведомлений`
           );
           setTimeout(() => setBanner(null), 6000);
         }
       }
+    };
+
+    // Query WITHOUT orderBy — no composite index needed; sort is done client-side
+    const q = query(
+      collection(db, 'notifications'),
+      where('userId', '==', user.id)
+    );
+
+    const unsub = onSnapshot(q, (snap) => {
+      handleItems(snap.docs.map(toItem));
     }, () => {
-      // Fallback if onSnapshot fails (e.g. rules not deployed yet)
-      contentService.getNotifications(user.id).then(data => {
-        setNotifications(data);
-        if (!initialLoadDone.current) {
-          initialLoadDone.current = true;
-          const unread = data.filter((n: any) => !n.read);
-          if (unread.length > 0) {
-            setBanner(unread.length === 1
-              ? `У вас новое уведомление: ${unread[0].title}`
-              : `У вас ${unread.length} новых уведомления`
-            );
-            setTimeout(() => setBanner(null), 6000);
-          }
-        }
-      }).catch(() => {});
+      // Fallback: one-time fetch if real-time listener fails
+      contentService.getNotifications(user.id)
+        .then(handleItems)
+        .catch(() => {});
     });
 
     return () => unsub();
@@ -105,13 +102,18 @@ export default function Navbar({ user, courses = [], onSelectCourse, onNavigate 
   const unreadCount = notifications.filter(n => !n.read).length;
 
   const markAllRead = async () => {
-    await contentService.markAllNotificationsRead(user.id);
+    // Optimistic update first — UI responds instantly
+    const unreadIds = notifications.filter(n => !n.read).map(n => n.id);
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    // Persist to Firestore (errors are swallowed inside the method)
+    contentService.markNotificationsReadByIds(unreadIds);
   };
 
   const handleNotifClick = async (id: string) => {
-    await contentService.markNotificationRead(id);
+    // Optimistic update first
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+    // Persist to Firestore
+    contentService.markNotificationRead(id);
   };
 
   return (
