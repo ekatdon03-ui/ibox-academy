@@ -736,7 +736,7 @@ async function startServer() {
         responseType: 'stream',
         headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ibox-academy/1.0)' },
         timeout: 60000,
-        maxContentLength: 100 * 1024 * 1024, // 100 MB display limit
+        maxContentLength: Infinity, // no limit — large files stream through
       });
 
       // Forward useful headers, but NEVER forward the blocking ones

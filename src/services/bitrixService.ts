@@ -224,8 +224,8 @@ class BitrixService {
         DESCRIPTION:
           `Вам назначен обязательный учебный курс в Академии iBOX.\n\n` +
           `Курс: ${courseTitle}` +
-          (courseDescription ? `\n${courseDescription}` : '') +
-          `\n\nОткройте приложение iBOX Academy в Битриксе для прохождения курса.`,
+          (courseDescription ? `\n\n${courseDescription}` : '') +
+          `\n\nДля прохождения курса откройте приложение iBOX Academy:\nhttps://portal.i-box.company/marketplace/app/498/`,
         RESPONSIBLE_ID: parseInt(bitrixUserId, 10),
         DEADLINE: deadline,
         ALLOW_CHANGE_DEADLINE: 'Y',
