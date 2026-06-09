@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, CheckCircle, HelpCircle, Trophy, X, Send, Zap, Maximize2, Minimize2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
@@ -327,11 +328,16 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
     const [resolving, setResolving] = useState(true);
     const [error, setError] = useState('');
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const [isCSSFullscreen, setIsCSSFullscreen] = useState(false);
     const videoRef = useRef<HTMLVideoElement>(null);
 
-    // Track fullscreen state changes (Esc key, etc.)
+    // Track native fullscreen state changes (Esc key, browser controls, etc.)
     useEffect(() => {
-      const onChange = () => setIsFullscreen(!!document.fullscreenElement);
+      const onChange = () => {
+        const active = !!document.fullscreenElement;
+        setIsFullscreen(active);
+        if (!active) setIsCSSFullscreen(false); // reset if native FS exited
+      };
       document.addEventListener('fullscreenchange', onChange);
       document.addEventListener('webkitfullscreenchange', onChange);
       return () => {
@@ -340,14 +346,30 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
       };
     }, []);
 
-    const toggleFullscreen = () => {
+    const toggleFullscreen = async () => {
+      // Exit CSS fullscreen
+      if (isCSSFullscreen) {
+        setIsCSSFullscreen(false);
+        setIsFullscreen(false);
+        return;
+      }
+      // Exit native fullscreen
+      if (document.fullscreenElement) {
+        try { await document.exitFullscreen(); } catch (_) {}
+        return;
+      }
       const el = videoRef.current;
       if (!el) return;
-      if (!document.fullscreenElement) {
-        (el.requestFullscreen?.() ?? (el as any).webkitRequestFullscreen?.());
-      } else {
-        (document.exitFullscreen?.() ?? (document as any).webkitExitFullscreen?.());
+      // Try native fullscreen (works in standalone browser)
+      try {
+        if (el.requestFullscreen) { await el.requestFullscreen(); return; }
+        if ((el as any).webkitEnterFullscreen) { (el as any).webkitEnterFullscreen(); return; }
+      } catch (_) {
+        // Native fullscreen blocked (e.g., inside Bitrix iframe) → CSS fallback
       }
+      // CSS/Portal fullscreen — works in Bitrix Mobile WebView and any iframe
+      setIsCSSFullscreen(true);
+      setIsFullscreen(true);
     };
 
     useEffect(() => {
@@ -397,26 +419,55 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
     // ── Video ──────────────────────────────────────────────────────────────
     if (fileType === 'video') {
       return (
-        <div className="relative w-full h-full bg-black group">
-          <video
-            ref={videoRef}
-            src={resolvedUrl}
-            controls
-            className="w-full h-full object-contain"
-            preload="metadata"
-            onError={() => setError('Не удалось воспроизвести видео')}
-          >
-            Ваш браузер не поддерживает воспроизведение видео.
-          </video>
-          {/* Fullscreen button — visible on hover */}
-          <button
-            onClick={toggleFullscreen}
-            title={isFullscreen ? 'Выйти из полного экрана' : 'На весь экран'}
-            className="absolute bottom-14 right-3 z-20 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 hover:bg-black/90 text-white rounded-lg p-2"
-          >
-            {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-          </button>
-        </div>
+        <>
+          {/* Portal fullscreen overlay — works in Bitrix iframe / Bitrix Mobile WebView */}
+          {isCSSFullscreen && createPortal(
+            <div
+              className="fixed inset-0 z-[99999] bg-black flex items-center justify-center"
+              style={{
+                paddingTop: 'env(safe-area-inset-top, 0px)',
+                paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+              }}
+            >
+              <video
+                src={resolvedUrl}
+                controls
+                autoPlay
+                playsInline
+                className="w-full h-full object-contain"
+              />
+              <button
+                onClick={() => { setIsCSSFullscreen(false); setIsFullscreen(false); }}
+                title="Выйти из полного экрана"
+                className="absolute top-4 right-4 z-10 bg-black/60 hover:bg-black/80 active:bg-black text-white rounded-2xl p-3 touch-manipulation shadow-lg"
+              >
+                <Minimize2 size={22} />
+              </button>
+            </div>,
+            document.body
+          )}
+          <div className="relative w-full h-full bg-black">
+            <video
+              ref={videoRef}
+              src={resolvedUrl}
+              controls
+              playsInline
+              className="w-full h-full object-contain"
+              preload="metadata"
+              onError={() => setError('Не удалось воспроизвести видео')}
+            >
+              Ваш браузер не поддерживает воспроизведение видео.
+            </video>
+            {/* Fullscreen button — always visible on all devices including mobile / touch */}
+            <button
+              onClick={toggleFullscreen}
+              title={isFullscreen || isCSSFullscreen ? 'Выйти из полного экрана' : 'На весь экран'}
+              className="absolute bottom-14 right-3 z-20 bg-black/60 hover:bg-black/90 active:bg-black text-white rounded-xl p-2.5 touch-manipulation shadow-lg"
+            >
+              {isFullscreen || isCSSFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+            </button>
+          </div>
+        </>
       );
     }
 

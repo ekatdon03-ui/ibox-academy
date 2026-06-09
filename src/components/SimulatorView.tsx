@@ -162,29 +162,29 @@ export default function SimulatorView({ courses, user, onRefreshUser }: Simulato
 
   if (!selectedCourse) {
     return (
-      <div className="flex-1 p-10 bg-[#F5F7FA]">
+      <div className="flex-1 p-4 sm:p-10 overflow-y-auto bg-[#F5F7FA]">
         <div className="max-w-4xl mx-auto">
-          <header className="mb-12">
-            <h1 className="text-4xl font-display font-black uppercase tracking-tight text-[#002D57]">Тренажер ситуаций</h1>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-[#00A3FF] mt-4">Выберите курс для отработки навыков в режиме диалога</p>
+          <header className="mb-6 sm:mb-12">
+            <h1 className="text-2xl sm:text-4xl font-display font-black uppercase tracking-tight text-[#002D57]">Тренажер ситуаций</h1>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-[#00A3FF] mt-2 sm:mt-4">Выберите курс для отработки навыков в режиме диалога</p>
           </header>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
             {courses.filter(c => (c.simulatorMode ?? (c.hasSimulator === false ? 'off' : 'optional')) !== 'off').map(course => (
               <button
                 key={course.id}
                 onClick={() => setSelectedCourse(course)}
-                className="bg-white p-10 rounded-[48px] border border-gray-100 shadow-sm hover:shadow-xl transition-all text-left flex items-center justify-between group"
+                className="bg-white p-5 sm:p-10 rounded-[28px] sm:rounded-[48px] border border-gray-100 shadow-sm hover:shadow-xl active:scale-95 transition-all text-left flex items-center justify-between gap-3 group touch-manipulation"
               >
-                <div className="flex items-center gap-6">
-                   <div className="w-16 h-16 bg-gray-50 rounded-3xl flex items-center justify-center text-[#002D57] group-hover:bg-[#002D57] group-hover:text-white transition-all">
-                      <Zap size={24} />
+                <div className="flex items-center gap-4 sm:gap-6 min-w-0">
+                   <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gray-50 rounded-2xl sm:rounded-3xl flex items-center justify-center text-[#002D57] group-hover:bg-[#002D57] group-hover:text-white transition-all shrink-0">
+                      <Zap size={22} />
                    </div>
-                   <div>
-                      <h3 className="text-xl font-display font-black uppercase tracking-tight text-[#002D57]">{course.title}</h3>
+                   <div className="min-w-0">
+                      <h3 className="text-base sm:text-xl font-display font-black uppercase tracking-tight text-[#002D57] truncate">{course.title}</h3>
                       <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-1">{course.category}</p>
                    </div>
                 </div>
-                <ChevronRight size={24} className="text-gray-200 group-hover:text-[#00A3FF] transition-all" />
+                <ChevronRight size={20} className="text-gray-200 group-hover:text-[#00A3FF] transition-all shrink-0" />
               </button>
             ))}
           </div>
@@ -196,38 +196,38 @@ export default function SimulatorView({ courses, user, onRefreshUser }: Simulato
   // If course selected but no lesson (and course has lessons), show lesson selection OR standard course training
   if (selectedCourse && !selectedLessonId && !messages.length && !isLoading) {
     return (
-      <div className="flex-1 p-10 bg-[#F5F7FA]">
+      <div className="flex-1 p-4 sm:p-10 overflow-y-auto bg-[#F5F7FA]">
         <div className="max-w-4xl mx-auto">
-          <header className="mb-12 flex items-center gap-6">
-            <button onClick={() => setSelectedCourse(null)} className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-gray-400 hover:text-[#002D57] transition-all border border-gray-100">
-               <X size={20} />
+          <header className="mb-6 sm:mb-12 flex items-center gap-4 sm:gap-6">
+            <button onClick={() => setSelectedCourse(null)} className="w-10 h-10 sm:w-12 sm:h-12 bg-white rounded-2xl flex items-center justify-center text-gray-400 hover:text-[#002D57] transition-all border border-gray-100 shrink-0 touch-manipulation">
+               <X size={18} />
             </button>
-            <div>
-              <h1 className="text-4xl font-display font-black uppercase tracking-tight text-[#002D57]">{selectedCourse.title}</h1>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-[#00A3FF] mt-2">Выберите уровень детализации тренировки</p>
+            <div className="min-w-0">
+              <h1 className="text-xl sm:text-4xl font-display font-black uppercase tracking-tight text-[#002D57] truncate">{selectedCourse.title}</h1>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[#00A3FF] mt-1 sm:mt-2">Выберите уровень детализации тренировки</p>
             </div>
           </header>
-          
-          <div className="grid grid-cols-1 gap-4">
-             <button 
+
+          <div className="grid grid-cols-1 gap-3 sm:gap-4">
+             <button
                 onClick={() => startSimulator(selectedCourse)}
-                className="bg-[#002D57] p-10 rounded-[40px] text-white shadow-xl hover:bg-[#00A3FF] transition-all text-left group"
+                className="bg-[#002D57] p-6 sm:p-10 rounded-[28px] sm:rounded-[40px] text-white shadow-xl hover:bg-[#00A3FF] active:scale-95 transition-all text-left group touch-manipulation"
              >
-                <h3 className="text-xl font-display font-black uppercase tracking-tight mb-2">Общая тренировка по курсу</h3>
+                <h3 className="text-base sm:text-xl font-display font-black uppercase tracking-tight mb-1 sm:mb-2">Общая тренировка по курсу</h3>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-white/40">Отработка общих концепций и стратегий</p>
              </button>
-             
+
              {selectedCourse.lessons.map(lesson => (
-               <button 
+               <button
                 key={lesson.id}
                 onClick={() => startSimulator(selectedCourse, lesson.id)}
-                className="bg-white p-8 rounded-[40px] border border-gray-100 shadow-sm hover:border-[#002D57] transition-all text-left flex items-center justify-between group"
+                className="bg-white p-5 sm:p-8 rounded-[28px] sm:rounded-[40px] border border-gray-100 shadow-sm hover:border-[#002D57] active:scale-95 transition-all text-left flex items-center justify-between gap-3 group touch-manipulation"
                >
-                 <div>
-                    <h3 className="text-lg font-display font-black uppercase tracking-tight text-[#002D57]">{lesson.title}</h3>
+                 <div className="min-w-0">
+                    <h3 className="text-sm sm:text-lg font-display font-black uppercase tracking-tight text-[#002D57] truncate">{lesson.title}</h3>
                     <p className="text-[10px] font-bold uppercase tracking-widest text-gray-300 mt-1">Отработка конкретной темы урока</p>
                  </div>
-                 <ChevronRight size={20} className="text-gray-200 group-hover:text-[#00A3FF] transition-all" />
+                 <ChevronRight size={18} className="text-gray-200 group-hover:text-[#00A3FF] transition-all shrink-0" />
                </button>
              ))}
           </div>
@@ -237,18 +237,18 @@ export default function SimulatorView({ courses, user, onRefreshUser }: Simulato
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-10 bg-ibox-bg flex flex-col h-full">
+    <div className="flex-1 overflow-y-auto p-4 sm:p-10 bg-ibox-bg flex flex-col h-full">
       <div className="max-w-4xl mx-auto w-full flex-1 flex flex-col">
-        <header className="mb-10 flex items-center justify-between">
-          <div>
-             <h1 className="text-4xl font-display font-black uppercase tracking-tight mb-2">AI Тренажер</h1>
+        <header className="mb-5 sm:mb-10 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+             <h1 className="text-xl sm:text-4xl font-display font-black uppercase tracking-tight mb-1 sm:mb-2 truncate">AI Тренажер</h1>
              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Тренажер для отработки навыков</p>
           </div>
-          <div className="flex items-center gap-4">
-             <p className="text-[10px] font-black uppercase tracking-widest text-[#00A3FF]">Ход {turnCount} из {selectedCourse.simulatorTurns ?? 3}</p>
-             <button 
+          <div className="flex items-center gap-3 sm:gap-4 shrink-0">
+             <p className="text-[10px] font-black uppercase tracking-widest text-[#00A3FF] hidden sm:block">Ход {turnCount} из {selectedCourse.simulatorTurns ?? 3}</p>
+             <button
                onClick={() => { setSelectedCourse(null); setSelectedLessonId(null); setMessages([]); setIsSuccess(false); }}
-              className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-gray-300 hover:text-red-500 transition-all border border-gray-100"
+              className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-gray-300 hover:text-red-500 transition-all border border-gray-100 touch-manipulation"
             >
               <X size={18} />
             </button>
