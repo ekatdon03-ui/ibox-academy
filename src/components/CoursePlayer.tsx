@@ -277,20 +277,48 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
       else videoId = rawUrl.split('?')[0].split('/').pop() || '';
       return `https://www.youtube.com/embed/${videoId}?rel=0&modestbranding=1&autoplay=0`;
     }
-    if (rawUrl.match(/\.(pptx|ppt|docx|xlsx)$/) || rawUrl.includes('sharepoint.com')) {
+    // Office formats + SharePoint
+    const pathLower = rawUrl.split('?')[0].toLowerCase();
+    if (pathLower.match(/\.(pptx|ppt|docx|xlsx)$/) || rawUrl.includes('sharepoint.com')) {
       return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(rawUrl)}`;
     }
     return rawUrl;
   };
 
-  const renderMedia = (url: string) => {
-    if (!url) return null;
+  // ── MediaBlock: resolves Yandex Disk / any URL, then renders ──────────────
+  const MediaBlock = ({ rawUrl }: { rawUrl: string }) => {
+    const [resolvedUrl, setResolvedUrl] = useState(rawUrl);
+    const [resolving, setResolving] = useState(false);
 
-    const embedUrl = getEmbedUrl(url);
-    const isVideo = url.toLowerCase().includes('video/') || url.toLowerCase().endsWith('.mp4');
+    useEffect(() => {
+      if (!rawUrl) return;
+      if (rawUrl.includes('disk.yandex.') || rawUrl.includes('yadi.sk')) {
+        setResolving(true);
+        fetch(`/api/resolve-public?url=${encodeURIComponent(rawUrl)}`)
+          .then(r => r.json())
+          .then(d => { if (d.url) setResolvedUrl(d.url); })
+          .catch(() => {})
+          .finally(() => setResolving(false));
+      } else {
+        setResolvedUrl(rawUrl);
+      }
+    }, [rawUrl]);
 
-    if (isVideo && !url.includes('drive.google.com')) {
-      return <video src={url} controls className="w-full h-full object-contain bg-black rounded-[28px]" />;
+    if (resolving) return (
+      <div className="w-full h-full flex items-center justify-center bg-[#F5F7FA]">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-4 border-[#002D57]/20 border-t-[#002D57] rounded-full animate-spin" />
+          <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Загрузка файла...</p>
+        </div>
+      </div>
+    );
+
+    const embedUrl = getEmbedUrl(resolvedUrl);
+    const urlLower = resolvedUrl.toLowerCase();
+    const isDirectVideo = urlLower.includes('video/') || urlLower.includes('.mp4') || urlLower.includes('.webm') || urlLower.includes('.mov');
+
+    if (isDirectVideo && !resolvedUrl.includes('drive.google.com')) {
+      return <video src={resolvedUrl} controls className="w-full h-full object-contain bg-black" />;
     }
 
     return (
@@ -483,13 +511,21 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
                   {currentLesson.title}
                 </h1>
 
-                {/* Media viewer — tall container, no fixed aspect ratio */}
-                {(course.fileUrl || currentLesson.fileUrl) && !showQuiz && (
-                  <div className="mb-10 rounded-[32px] overflow-hidden border-2 border-gray-100 shadow-2xl bg-gray-50"
-                       style={{ height: '78vh', minHeight: 560 }}>
-                    {renderMedia(currentLesson.fileUrl || course.fileUrl || '')}
-                  </div>
-                )}
+                {/* Media viewer — supports multiple files per lesson */}
+                {(() => {
+                  const urls = (
+                    currentLesson.fileUrls?.length ? currentLesson.fileUrls
+                    : currentLesson.fileUrl ? [currentLesson.fileUrl]
+                    : course.fileUrl ? [course.fileUrl]
+                    : []
+                  ).filter(u => u?.trim());
+                  return urls.length > 0 && !showQuiz ? urls.map((url, i) => (
+                    <div key={i} className="mb-10 rounded-[32px] overflow-hidden border-2 border-gray-100 shadow-2xl bg-gray-50"
+                         style={{ height: '78vh', minHeight: 560 }}>
+                      <MediaBlock rawUrl={url} />
+                    </div>
+                  )) : null;
+                })()}
 
                 <div className="markdown-content max-w-none">
                   <ReactMarkdown>{currentLesson.content}</ReactMarkdown>

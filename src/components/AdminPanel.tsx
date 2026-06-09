@@ -1138,6 +1138,8 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
   const [courseType, setCourseType] = useState<'presentation' | 'video' | 'scorm'>(initialData?.type || 'presentation');
   const [fileUrl, setFileUrl] = useState(initialData?.fileUrl || '');
   const [isPublic, setIsPublic] = useState(initialData?.isPublic || false);
+  // Per-lesson "new link" input state (keyed by lesson index)
+  const [newLessonLinks, setNewLessonLinks] = useState<Record<number, string>>({});
 
   const handleAddLesson = () => {
     const newLesson: Lesson = {
@@ -1170,7 +1172,9 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
       if (lessonIdx !== undefined) {
         setLessons(prev => {
           const n = [...prev];
-          n[lessonIdx] = { ...n[lessonIdx], fileUrl: url };
+          const cur = n[lessonIdx];
+          const existing = cur.fileUrls?.length ? cur.fileUrls : cur.fileUrl ? [cur.fileUrl] : [];
+          n[lessonIdx] = { ...cur, fileUrls: [...existing, url], fileUrl: existing.length === 0 ? url : cur.fileUrl };
           return n;
         });
       } else {
@@ -1252,7 +1256,9 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
   const handleExtractKnowledge = async (idx: number) => {
     if (extractingIdx !== null) return;
     const lesson = lessons[idx];
-    if (!lesson.fileUrl) {
+    // Use first URL from fileUrls, or legacy fileUrl
+    const firstUrl = lesson.fileUrls?.find(u => u?.trim()) || lesson.fileUrl;
+    if (!firstUrl) {
       showFormToast("Сначала загрузите файл или укажите ссылку на него.", true);
       return;
     }
@@ -1262,13 +1268,13 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
       let base64Content = '';
       let mimeTypeContent = '';
 
-      if (lesson.fileUrl.startsWith('data:')) {
-        const parts = lesson.fileUrl.split(',');
+      if (firstUrl.startsWith('data:')) {
+        const parts = firstUrl.split(',');
         base64Content = parts[1];
         mimeTypeContent = parts[0].split(':')[1].split(';')[0];
       } else {
         try {
-          const response = await axios.post('/api/proxy-fetch', { url: lesson.fileUrl });
+          const response = await axios.post('/api/proxy-fetch', { url: firstUrl });
           base64Content = response.data.base64;
           mimeTypeContent = response.data.contentType || 'application/octet-stream';
         } catch (fetchErr: any) {
@@ -1579,42 +1585,83 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
                       </div>
                       
                       <div className="mb-6 p-6 bg-white border border-gray-100 rounded-3xl space-y-4">
-                        <div className="flex items-center justify-between">
-                          <label className="text-[10px] font-black uppercase tracking-widest text-[#002D57]">Медиа-контент урока</label>
-                          {lesson.fileUrl && (
-                            <button 
-                              onClick={() => {
-                                const n = [...lessons];
-                                n[idx].fileUrl = '';
-                                setLessons(n);
-                              }}
-                              className="text-[9px] font-black text-red-500 uppercase hover:underline"
-                            >
-                              Удалить
-                            </button>
-                          )}
-                        </div>
+                        <label className="text-[10px] font-black uppercase tracking-widest text-[#002D57]">Медиа-контент урока</label>
 
+                        {/* ── List of already added files ── */}
+                        {(() => {
+                          const urls = lesson.fileUrls?.length
+                            ? lesson.fileUrls
+                            : lesson.fileUrl ? [lesson.fileUrl] : [];
+                          return urls.length > 0 ? (
+                            <div className="space-y-2">
+                              {urls.map((u, uIdx) => (
+                                <div key={uIdx} className="flex items-center gap-2 bg-[#F5F7FA] rounded-2xl px-4 py-2.5">
+                                  <LinkIcon size={11} className="text-[#00A3FF] shrink-0" />
+                                  <span className="flex-1 text-[9px] font-bold text-[#002D57] truncate">
+                                    {u.startsWith('data:') ? `📎 Файл ${uIdx + 1} (загружен)` : u}
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      const n = [...lessons];
+                                      const newUrls = urls.filter((_, i) => i !== uIdx);
+                                      n[idx] = { ...n[idx], fileUrls: newUrls, fileUrl: newUrls[0] || '' };
+                                      setLessons(n);
+                                    }}
+                                    className="text-red-400 hover:text-red-600 transition-colors shrink-0"
+                                  ><X size={12} /></button>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null;
+                        })()}
+
+                        {/* ── Add new media ── */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {/* Option A: Link (Recommended) */}
+                          {/* Option A: Link */}
                           <div className="flex flex-col gap-2">
                              <div className="flex items-center gap-2 text-[#00A3FF]">
                                 <LinkIcon size={12} strokeWidth={3} />
-                                <span className="text-[9px] font-black uppercase">Вставить ссылку (Рекомендуется)</span>
+                                <span className="text-[9px] font-black uppercase">Вставить ссылку</span>
                              </div>
-                             <input 
-                                className="w-full bg-[#F5F7FA] rounded-2xl px-5 py-3 outline-none text-[10px] font-bold focus:ring-4 focus:ring-[#00A3FF]/10 transition-all"
-                                placeholder="YouTube, Google Drive, PDF link..."
-                                value={lesson.fileUrl && !lesson.fileUrl.startsWith('data:') ? lesson.fileUrl : ''}
-                                onChange={(e) => {
-                                  const n = [...lessons];
-                                  n[idx].fileUrl = e.target.value;
-                                  setLessons(n);
-                                }}
-                             />
+                             <div className="flex gap-2">
+                               <input
+                                  className="flex-1 bg-[#F5F7FA] rounded-2xl px-4 py-3 outline-none text-[10px] font-bold focus:ring-4 focus:ring-[#00A3FF]/10 transition-all"
+                                  placeholder="YouTube, Google Drive, Яндекс Диск, PDF..."
+                                  value={newLessonLinks[idx] || ''}
+                                  onChange={(e) => setNewLessonLinks(p => ({ ...p, [idx]: e.target.value }))}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && (newLessonLinks[idx] || '').trim()) {
+                                      const link = newLessonLinks[idx].trim();
+                                      setLessons(prev => {
+                                        const n = [...prev];
+                                        const cur = n[idx];
+                                        const existing = cur.fileUrls?.length ? cur.fileUrls : cur.fileUrl ? [cur.fileUrl] : [];
+                                        n[idx] = { ...cur, fileUrls: [...existing, link], fileUrl: existing.length === 0 ? link : cur.fileUrl };
+                                        return n;
+                                      });
+                                      setNewLessonLinks(p => ({ ...p, [idx]: '' }));
+                                    }
+                                  }}
+                               />
+                               <button
+                                 onClick={() => {
+                                   const link = (newLessonLinks[idx] || '').trim();
+                                   if (!link) return;
+                                   setLessons(prev => {
+                                     const n = [...prev];
+                                     const cur = n[idx];
+                                     const existing = cur.fileUrls?.length ? cur.fileUrls : cur.fileUrl ? [cur.fileUrl] : [];
+                                     n[idx] = { ...cur, fileUrls: [...existing, link], fileUrl: existing.length === 0 ? link : cur.fileUrl };
+                                     return n;
+                                   });
+                                   setNewLessonLinks(p => ({ ...p, [idx]: '' }));
+                                 }}
+                                 className="px-4 py-3 bg-[#002D57] text-white rounded-2xl text-[10px] font-black hover:bg-[#00A3FF] transition-all shrink-0"
+                               >+</button>
+                             </div>
                           </div>
 
-                          {/* Option B: Upload (For small files) */}
+                          {/* Option B: Upload */}
                           <div className="flex flex-col gap-2">
                              <div className="flex items-center gap-2 text-gray-400">
                                 <Upload size={12} strokeWidth={3} />
@@ -1622,44 +1669,30 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
                              </div>
                              <div className="grid grid-cols-2 gap-2">
                                 <div className="relative">
-                                  <input 
-                                    type="file" 
-                                    id={`lesson-file-${idx}`} 
-                                    className="absolute inset-0 opacity-0 cursor-pointer z-10" 
-                                    onChange={(e) => handleFileUpload(e, idx)} 
+                                  <input
+                                    type="file"
+                                    id={`lesson-file-${idx}`}
+                                    className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                                    onChange={(e) => handleFileUpload(e, idx)}
                                   />
                                   <div className="w-full bg-[#F5F7FA] rounded-2xl px-5 py-3 text-[10px] font-bold text-gray-400 border-2 border-dashed border-gray-200 text-center truncate">
-                                     {lesson.fileUrl && lesson.fileUrl.startsWith('data:') ? "✅ Готово" : "Выбрать файл"}
+                                    Выбрать файл
                                   </div>
                                 </div>
-                                <button 
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    handleExtractKnowledge(idx);
-                                  }}
-                                  disabled={!lesson.fileUrl || extractingIdx === idx}
+                                <button
+                                  onClick={(e) => { e.preventDefault(); handleExtractKnowledge(idx); }}
+                                  disabled={!(lesson.fileUrls?.length || lesson.fileUrl) || extractingIdx === idx}
                                   className={`flex items-center justify-center gap-2 px-4 py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest transition-all ${
-                                    !lesson.fileUrl ? 'bg-gray-100 text-gray-400 opacity-50 cursor-not-allowed' : 
+                                    !(lesson.fileUrls?.length || lesson.fileUrl) ? 'bg-gray-100 text-gray-400 opacity-50 cursor-not-allowed' :
                                     'bg-[#002D57] text-white hover:bg-[#00A3FF] shadow-lg hover:scale-105 active:scale-95'
                                   }`}
                                 >
-                                  {extractingIdx === idx ? (
-                                    <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                  ) : <Zap size={12} fill="currentColor" />}
+                                  {extractingIdx === idx ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Zap size={12} fill="currentColor" />}
                                   {extractingIdx === idx ? 'АНАЛИЗ...' : 'ИЗУЧИТЬ ФАЙЛ'}
                                 </button>
                              </div>
                           </div>
                         </div>
-
-                        {lesson.fileUrl && lesson.fileUrl.startsWith('data:') && (
-                           <div className="bg-blue-50 p-3 rounded-xl flex items-start gap-3">
-                              <Zap size={14} className="text-ibox-blue mt-0.5" />
-                              <p className="text-[9px] font-bold text-[#002D57] leading-relaxed">
-                                Файл сохранен в базе данных. Если он велик, рекомендуем использовать ссылку (Google Drive/OneDrive), чтобы избежать ошибок при сохранении курса.
-                              </p>
-                           </div>
-                        )}
                       </div>
 
                       <div className="space-y-4">

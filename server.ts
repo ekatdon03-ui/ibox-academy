@@ -313,6 +313,23 @@ async function startServer() {
   });
 
   // ─────────────────────────────────────────────────────────────────────
+  // RESOLVE PUBLIC URL — resolves Yandex Disk and other share links to direct download URLs
+  // ─────────────────────────────────────────────────────────────────────
+  app.get('/api/resolve-public', async (req: any, res: any) => {
+    const rawUrl = String(req.query.url || '');
+    if (!rawUrl) { res.status(400).json({ error: 'No URL' }); return; }
+    try {
+      if (rawUrl.includes('disk.yandex.') || rawUrl.includes('yadi.sk')) {
+        const apiResp = await axios.get(
+          `https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=${encodeURIComponent(rawUrl)}`,
+          { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ibox-academy/1.0)' }, timeout: 8000 }
+        );
+        if (apiResp.data?.href) { res.json({ url: apiResp.data.href }); return; }
+      }
+    } catch (_) { /* fall through to original URL */ }
+    res.json({ url: rawUrl });
+  });
+
   // PROXY FETCH — for AI media extraction
   // ─────────────────────────────────────────────────────────────────────
   app.post('/api/proxy-fetch', async (req, res) => {
@@ -320,7 +337,16 @@ async function startServer() {
       let { url } = req.body;
       if (!url) return res.status(400).json({ error: 'URL is required' });
 
-      if (url.includes('drive.google.com/file/d/')) {
+      // Resolve Yandex Disk share links to direct download URLs
+      if (url.includes('disk.yandex.') || url.includes('yadi.sk')) {
+        try {
+          const yadResp = await axios.get(
+            `https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=${encodeURIComponent(url)}`,
+            { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 8000 }
+          );
+          if (yadResp.data?.href) url = yadResp.data.href;
+        } catch (_) { /* use original URL */ }
+      } else if (url.includes('drive.google.com/file/d/')) {
         const fileId = url.split('/d/')[1].split('/')[0];
         url = `https://drive.google.com/uc?export=download&id=${fileId}`;
       } else if (url.includes('drive.google.com/open?id=')) {

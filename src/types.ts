@@ -2,7 +2,8 @@ export interface Lesson {
   id: string;
   title: string;
   content: string;
-  fileUrl?: string;
+  fileUrl?: string;   // legacy single file (kept for backward compat)
+  fileUrls?: string[]; // multiple media files per lesson (primary field)
   aiKnowledge?: string;
   testConfig?: TestConfig; // Optional per-lesson test shown after the lesson
 }
