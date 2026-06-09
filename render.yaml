@@ -5,6 +5,7 @@ services:
     plan: free
     region: frankfurt  # Европа — ближе к РФ, меньше задержек
     buildCommand: npm install && npm run build
+    # ffmpeg-static npm package bundles the binary — no system install needed
     startCommand: node dist/server.cjs
     healthCheckPath: /api/bitrix-webhook
     envVars:
