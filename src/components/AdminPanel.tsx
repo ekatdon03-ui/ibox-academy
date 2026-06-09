@@ -189,14 +189,27 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
       // 1. Update Course Document (assignedToUsers)
       const course = courses.find(c => c.id === courseId);
       const currentAssigned = course?.assignedToUsers || [];
+      // Only users NOT yet assigned — to avoid duplicate tasks
+      const trulyNew = targetUserIds.filter(id => !currentAssigned.includes(id));
       const newAssigned = [...new Set([...currentAssigned, ...targetUserIds])];
-      
+
       await contentService.updateCourse(courseId, { assignedToUsers: newAssigned });
-      
+
       // 2. Update User Documents (assignedCourses)
       await contentService.massAssignCourse(courseId, targetUserIds);
-      
-      // 3. Update local state
+
+      // 3. Create Bitrix24 tasks for newly assigned users (best-effort, fire-and-forget)
+      if (course && trulyNew.length > 0) {
+        for (const uid of trulyNew) {
+          const u = users.find(u => u.id === uid);
+          if (u?.bitrixId) {
+            bitrixService.createCourseTask(u.bitrixId, course.title, course.description)
+              .catch(() => {});
+          }
+        }
+      }
+
+      // 4. Update local state
       onUpdateCourses(courses.map(c => c.id === courseId ? { ...c, assignedToUsers: newAssigned } : c));
       
       // Refresh user list for good measure
@@ -233,13 +246,18 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
         const newAssigned = [...(course?.assignedToUsers || []), userId];
         await contentService.updateCourse(courseId, { assignedToUsers: newAssigned });
         onUpdateCourses(courses.map(c => c.id === courseId ? { ...c, assignedToUsers: newAssigned } : c));
-        
+
         if (course) {
           await contentService.createNotification(
-            userId, 
-            'Новая задача', 
+            userId,
+            'Новая задача',
             `Вам назначен новый учебный курс: ${course.title}`
           );
+          // Create Bitrix24 task for the employee (best-effort, won't block assignment)
+          if (user?.bitrixId) {
+            bitrixService.createCourseTask(user.bitrixId, course.title, course.description)
+              .catch(() => {});
+          }
         }
       }
       
