@@ -723,6 +723,39 @@ async function startServer() {
   });
 
   // ─────────────────────────────────────────────────────────────────────
+  // MEDIA PROXY — streams any URL through our server, stripping
+  // X-Frame-Options / CSP frame-ancestors so the browser can embed it.
+  // Used for Yandex Disk PDFs and other files that block iframe.
+  // GET /api/proxy-media?url=...
+  // ─────────────────────────────────────────────────────────────────────
+  app.get('/api/proxy-media', async (req: any, res: any) => {
+    const url = String(req.query.url || '');
+    if (!url) return res.status(400).send('url required');
+    try {
+      const upstream = await axios.get(url, {
+        responseType: 'stream',
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ibox-academy/1.0)' },
+        timeout: 60000,
+        maxContentLength: 100 * 1024 * 1024, // 100 MB display limit
+      });
+
+      // Forward useful headers, but NEVER forward the blocking ones
+      const BLOCKED = new Set(['x-frame-options', 'content-security-policy',
+        'x-content-type-options', 'strict-transport-security']);
+      for (const [k, v] of Object.entries(upstream.headers)) {
+        if (!BLOCKED.has(k.toLowerCase()) && v) res.setHeader(k, v as string);
+      }
+      res.setHeader('Content-Disposition', 'inline');
+      // Explicitly allow embedding
+      res.removeHeader('X-Frame-Options');
+
+      upstream.data.pipe(res);
+    } catch (e: any) {
+      res.status(502).send('proxy-media failed: ' + e.message);
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────
   // BITRIX24 HANDLER ENTRY POINT (POST /)
   // ─────────────────────────────────────────────────────────────────────
   app.post('/', (req, res) => {

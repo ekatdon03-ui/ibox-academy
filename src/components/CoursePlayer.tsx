@@ -285,22 +285,78 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
     return rawUrl;
   };
 
+  // ── Detect media type from any URL (path ext or ?filename= param) ────────
+  const detectFileType = (url: string): 'video' | 'audio' | 'image' | 'pdf' | 'office' | 'embed' => {
+    if (!url) return 'embed';
+    // Special embed services — handled by getEmbedUrl, keep as embed
+    if (url.includes('youtube.com') || url.includes('youtu.be')) return 'embed';
+    if (url.includes('drive.google.com')) return 'embed';
+    if (url.includes('docs.google.com')) return 'embed';
+    if (url.includes('sharepoint.com')) return 'embed';
+
+    // Try to extract extension from ?filename=xxx.ext or path
+    let ext = '';
+    try {
+      const parsed = new URL(url);
+      const fn = parsed.searchParams.get('filename') || parsed.searchParams.get('name') || '';
+      if (fn) {
+        ext = fn.split('.').pop()?.toLowerCase() || '';
+      } else {
+        ext = parsed.pathname.split('.').pop()?.toLowerCase() || '';
+      }
+    } catch {
+      ext = url.split('?')[0].split('.').pop()?.toLowerCase() || '';
+    }
+
+    if (['mp4', 'webm', 'avi', 'mov', 'mkv', 'm4v', 'ogv', '3gp'].includes(ext)) return 'video';
+    if (['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac', 'opus'].includes(ext)) return 'audio';
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'].includes(ext)) return 'image';
+    if (ext === 'pdf') return 'pdf';
+    if (['pptx', 'ppt', 'docx', 'doc', 'xlsx', 'xls'].includes(ext)) return 'office';
+    return 'embed';
+  };
+
+  const isYandexUrl = (url: string) =>
+    url.includes('disk.yandex.') || url.includes('yandex.ru/d/') ||
+    url.includes('yandex.ru/i/') || url.includes('yadi.sk');
+
   // ── MediaBlock: resolves Yandex Disk / any URL, then renders ──────────────
   const MediaBlock = ({ rawUrl }: { rawUrl: string }) => {
-    const [resolvedUrl, setResolvedUrl] = useState(rawUrl);
-    const [resolving, setResolving] = useState(false);
+    const [resolvedUrl, setResolvedUrl] = useState('');
+    const [fileType, setFileType] = useState<'video' | 'audio' | 'image' | 'pdf' | 'office' | 'embed'>('embed');
+    const [resolving, setResolving] = useState(true);
+    const [error, setError] = useState('');
 
     useEffect(() => {
-      if (!rawUrl) return;
-      if (rawUrl.includes('disk.yandex.') || rawUrl.includes('yadi.sk')) {
+      if (!rawUrl) { setResolving(false); return; }
+
+      if (isYandexUrl(rawUrl)) {
         setResolving(true);
+        setError('');
         fetch(`/api/resolve-public?url=${encodeURIComponent(rawUrl)}`)
           .then(r => r.json())
-          .then(d => { if (d.url) setResolvedUrl(d.url); })
-          .catch(() => {})
+          .then(d => {
+            if (d.url) {
+              setResolvedUrl(d.url);
+              // Detect from resolved URL first; if unknown, try raw URL as fallback
+              const t = detectFileType(d.url);
+              setFileType(t !== 'embed' ? t : detectFileType(rawUrl));
+            } else {
+              setError('Не удалось получить ссылку на файл');
+              setResolvedUrl(rawUrl);
+              setFileType('embed');
+            }
+          })
+          .catch(() => {
+            setError('Ошибка при загрузке файла с Яндекс Диска');
+            setResolvedUrl(rawUrl);
+            setFileType('embed');
+          })
           .finally(() => setResolving(false));
       } else {
         setResolvedUrl(rawUrl);
+        setFileType(detectFileType(rawUrl));
+        setResolving(false);
       }
     }, [rawUrl]);
 
@@ -313,22 +369,84 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
       </div>
     );
 
-    const embedUrl = getEmbedUrl(resolvedUrl);
-    const urlLower = resolvedUrl.toLowerCase();
-    const isDirectVideo = urlLower.includes('video/') || urlLower.includes('.mp4') || urlLower.includes('.webm') || urlLower.includes('.mov');
+    if (!resolvedUrl) return null;
 
-    if (isDirectVideo && !resolvedUrl.includes('drive.google.com')) {
-      return <video src={resolvedUrl} controls className="w-full h-full object-contain bg-black" />;
+    // ── Video ──────────────────────────────────────────────────────────────
+    if (fileType === 'video') {
+      return (
+        <video
+          src={resolvedUrl}
+          controls
+          className="w-full h-full object-contain bg-black"
+          preload="metadata"
+          onError={() => setError('Не удалось воспроизвести видео')}
+        >
+          Ваш браузер не поддерживает воспроизведение видео.
+        </video>
+      );
+    }
+
+    // ── Audio ──────────────────────────────────────────────────────────────
+    if (fileType === 'audio') {
+      return (
+        <div className="w-full h-full flex items-center justify-center bg-[#F5F7FA]">
+          <audio src={resolvedUrl} controls className="w-3/4" onError={() => setError('Не удалось воспроизвести аудио')} />
+        </div>
+      );
+    }
+
+    // ── Image ──────────────────────────────────────────────────────────────
+    if (fileType === 'image') {
+      return (
+        <div className="w-full h-full flex items-center justify-center bg-[#F5F7FA]">
+          <img src={resolvedUrl} alt="Изображение" className="max-w-full max-h-full object-contain" onError={() => setError('Не удалось загрузить изображение')} />
+        </div>
+      );
+    }
+
+    // ── For embed services (YouTube, Drive, etc.) use getEmbedUrl ──────────
+    const embedUrl = getEmbedUrl(resolvedUrl);
+    const isEmbedService = embedUrl !== resolvedUrl; // getEmbedUrl transformed the URL
+
+    // ── PDF or non-transformable Yandex URL → proxy through our server ────
+    // This strips X-Frame-Options / CSP so the browser can embed it
+    const needsProxy = !isEmbedService && isYandexUrl(rawUrl);
+    const iframeSrc = needsProxy
+      ? `/api/proxy-media?url=${encodeURIComponent(resolvedUrl)}`
+      : embedUrl;
+
+    // ── Office files (local/public URLs) → Microsoft Office Online ────────
+    if (fileType === 'office' && !isEmbedService) {
+      const officeSrc = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(resolvedUrl)}`;
+      return (
+        <div className="w-full h-full bg-white relative">
+          <iframe
+            src={officeSrc}
+            className="absolute inset-0 w-full h-full border-none"
+            allowFullScreen
+            title="Office Viewer"
+          />
+        </div>
+      );
     }
 
     return (
       <div className="w-full h-full bg-white relative">
+        {error && (
+          <div className="absolute top-0 left-0 right-0 z-10 bg-red-50 border-b border-red-200 px-4 py-2 flex items-center gap-2">
+            <span className="text-xs text-red-600">{error}</span>
+            <a href={resolvedUrl} target="_blank" rel="noreferrer" className="text-xs text-[#002D57] underline ml-auto">
+              Открыть в новой вкладке
+            </a>
+          </div>
+        )}
         <iframe
-          src={embedUrl}
+          src={iframeSrc}
           className="absolute inset-0 w-full h-full border-none"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
           allowFullScreen
           title="Content Player"
+          onError={() => setError('Файл недоступен для просмотра')}
         />
       </div>
     );
