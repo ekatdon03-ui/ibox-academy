@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, CheckCircle, HelpCircle, Trophy, X, Send, Zap, Maximize2, Minimize2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
@@ -196,6 +195,13 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
   const [simScore, setSimScore] = useState(0);
   const [simFeedback, setSimFeedback] = useState('');
 
+  // ── Fullscreen overlay state (works inside any iframe / Bitrix Mobile) ──
+  const [fullscreenContent, setFullscreenContent] = useState<{
+    url: string;
+    type: 'video' | 'iframe' | 'image' | 'audio';
+    iframeSrc?: string;
+  } | null>(null);
+
   const showQuiz = quizType !== null;
   const testMode = course.testMode ?? 'final';
   const lessons = course.lessons || [];
@@ -321,82 +327,30 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
     url.includes('disk.yandex.') || url.includes('yandex.ru/d/') ||
     url.includes('yandex.ru/i/') || url.includes('yadi.sk');
 
-  // ── MediaBlock: resolves Yandex Disk / any URL, then renders ──────────────
+  // ── MediaBlock: resolves URL, detects type, renders with fullscreen button ──
   const MediaBlock = ({ rawUrl }: { rawUrl: string }) => {
     const [resolvedUrl, setResolvedUrl] = useState('');
     const [fileType, setFileType] = useState<'video' | 'audio' | 'image' | 'pdf' | 'office' | 'embed'>('embed');
     const [resolving, setResolving] = useState(true);
     const [error, setError] = useState('');
-    const [isFullscreen, setIsFullscreen] = useState(false);
-    const [isCSSFullscreen, setIsCSSFullscreen] = useState(false);
-    const videoRef = useRef<HTMLVideoElement>(null);
-
-    // Track native fullscreen state changes (Esc key, browser controls, etc.)
-    useEffect(() => {
-      const onChange = () => {
-        const active = !!document.fullscreenElement;
-        setIsFullscreen(active);
-        if (!active) setIsCSSFullscreen(false); // reset if native FS exited
-      };
-      document.addEventListener('fullscreenchange', onChange);
-      document.addEventListener('webkitfullscreenchange', onChange);
-      return () => {
-        document.removeEventListener('fullscreenchange', onChange);
-        document.removeEventListener('webkitfullscreenchange', onChange);
-      };
-    }, []);
-
-    const toggleFullscreen = async () => {
-      // Exit CSS fullscreen
-      if (isCSSFullscreen) {
-        setIsCSSFullscreen(false);
-        setIsFullscreen(false);
-        return;
-      }
-      // Exit native fullscreen
-      if (document.fullscreenElement) {
-        try { await document.exitFullscreen(); } catch (_) {}
-        return;
-      }
-      const el = videoRef.current;
-      if (!el) return;
-      // Try native fullscreen (works in standalone browser)
-      try {
-        if (el.requestFullscreen) { await el.requestFullscreen(); return; }
-        if ((el as any).webkitEnterFullscreen) { (el as any).webkitEnterFullscreen(); return; }
-      } catch (_) {
-        // Native fullscreen blocked (e.g., inside Bitrix iframe) → CSS fallback
-      }
-      // CSS/Portal fullscreen — works in Bitrix Mobile WebView and any iframe
-      setIsCSSFullscreen(true);
-      setIsFullscreen(true);
-    };
 
     useEffect(() => {
       if (!rawUrl) { setResolving(false); return; }
-
       if (isYandexUrl(rawUrl)) {
-        setResolving(true);
-        setError('');
+        setResolving(true); setError('');
         fetch(`/api/resolve-public?url=${encodeURIComponent(rawUrl)}`)
           .then(r => r.json())
           .then(d => {
             if (d.url) {
               setResolvedUrl(d.url);
-              // Detect from resolved URL first; if unknown, try raw URL as fallback
               const t = detectFileType(d.url);
               setFileType(t !== 'embed' ? t : detectFileType(rawUrl));
             } else {
               setError('Не удалось получить ссылку на файл');
-              setResolvedUrl(rawUrl);
-              setFileType('embed');
+              setResolvedUrl(rawUrl); setFileType('embed');
             }
           })
-          .catch(() => {
-            setError('Ошибка при загрузке файла с Яндекс Диска');
-            setResolvedUrl(rawUrl);
-            setFileType('embed');
-          })
+          .catch(() => { setError('Ошибка при загрузке файла с Яндекс Диска'); setResolvedUrl(rawUrl); setFileType('embed'); })
           .finally(() => setResolving(false));
       } else {
         setResolvedUrl(rawUrl);
@@ -404,6 +358,22 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
         setResolving(false);
       }
     }, [rawUrl]);
+
+    // Universal fullscreen button — always visible, works on all content
+    const FsBtn = ({ onFs, dark }: { onFs: () => void; dark?: boolean }) => (
+      <button
+        onClick={onFs}
+        title="На весь экран"
+        className={`absolute bottom-3 right-3 z-20 flex items-center gap-1.5 pl-2.5 pr-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wide touch-manipulation shadow-lg transition-all active:scale-95 ${
+          dark
+            ? 'bg-black/60 hover:bg-black/80 text-white border border-white/10'
+            : 'bg-white/95 hover:bg-white text-[#002D57] border border-gray-200'
+        }`}
+      >
+        <Maximize2 size={13} />
+        <span>Полный экран</span>
+      </button>
+    );
 
     if (resolving) return (
       <div className="w-full h-full flex items-center justify-center bg-[#F5F7FA]">
@@ -419,63 +389,26 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
     // ── Video ──────────────────────────────────────────────────────────────
     if (fileType === 'video') {
       return (
-        <>
-          {/* Portal fullscreen overlay — works in Bitrix iframe / Bitrix Mobile WebView */}
-          {isCSSFullscreen && createPortal(
-            <div
-              className="fixed inset-0 z-[99999] bg-black flex items-center justify-center"
-              style={{
-                paddingTop: 'env(safe-area-inset-top, 0px)',
-                paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-              }}
-            >
-              <video
-                src={resolvedUrl}
-                controls
-                autoPlay
-                playsInline
-                className="w-full h-full object-contain"
-              />
-              <button
-                onClick={() => { setIsCSSFullscreen(false); setIsFullscreen(false); }}
-                title="Выйти из полного экрана"
-                className="absolute top-4 right-4 z-10 bg-black/60 hover:bg-black/80 active:bg-black text-white rounded-2xl p-3 touch-manipulation shadow-lg"
-              >
-                <Minimize2 size={22} />
-              </button>
-            </div>,
-            document.body
-          )}
-          <div className="relative w-full h-full bg-black">
-            <video
-              ref={videoRef}
-              src={resolvedUrl}
-              controls
-              playsInline
-              className="w-full h-full object-contain"
-              preload="metadata"
-              onError={() => setError('Не удалось воспроизвести видео')}
-            >
-              Ваш браузер не поддерживает воспроизведение видео.
-            </video>
-            {/* Fullscreen button — always visible on all devices including mobile / touch */}
-            <button
-              onClick={toggleFullscreen}
-              title={isFullscreen || isCSSFullscreen ? 'Выйти из полного экрана' : 'На весь экран'}
-              className="absolute bottom-14 right-3 z-20 bg-black/60 hover:bg-black/90 active:bg-black text-white rounded-xl p-2.5 touch-manipulation shadow-lg"
-            >
-              {isFullscreen || isCSSFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
-            </button>
-          </div>
-        </>
+        <div className="relative w-full h-full bg-black">
+          <video
+            src={resolvedUrl}
+            controls
+            playsInline
+            className="w-full h-full object-contain"
+            preload="metadata"
+            onError={() => setError('Не удалось воспроизвести видео')}
+          />
+          <FsBtn dark onFs={() => setFullscreenContent({ url: resolvedUrl, type: 'video' })} />
+        </div>
       );
     }
 
     // ── Audio ──────────────────────────────────────────────────────────────
     if (fileType === 'audio') {
       return (
-        <div className="w-full h-full flex items-center justify-center bg-[#F5F7FA]">
+        <div className="relative w-full h-full flex items-center justify-center bg-[#F5F7FA]">
           <audio src={resolvedUrl} controls className="w-3/4" onError={() => setError('Не удалось воспроизвести аудио')} />
+          <FsBtn onFs={() => setFullscreenContent({ url: resolvedUrl, type: 'audio' })} />
         </div>
       );
     }
@@ -483,46 +416,37 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
     // ── Image ──────────────────────────────────────────────────────────────
     if (fileType === 'image') {
       return (
-        <div className="w-full h-full flex items-center justify-center bg-[#F5F7FA]">
+        <div className="relative w-full h-full flex items-center justify-center bg-[#F5F7FA]">
           <img src={resolvedUrl} alt="Изображение" className="max-w-full max-h-full object-contain" onError={() => setError('Не удалось загрузить изображение')} />
+          <FsBtn onFs={() => setFullscreenContent({ url: resolvedUrl, type: 'image' })} />
         </div>
       );
     }
 
-    // ── For embed services (YouTube, Drive, etc.) use getEmbedUrl ──────────
+    // ── Embed URL transform (YouTube, Google Drive, etc.) ─────────────────
     const embedUrl = getEmbedUrl(resolvedUrl);
-    const isEmbedService = embedUrl !== resolvedUrl; // getEmbedUrl transformed the URL
-
-    // ── PDF or non-transformable Yandex URL → proxy through our server ────
-    // This strips X-Frame-Options / CSP so the browser can embed it
+    const isEmbedService = embedUrl !== resolvedUrl;
     const needsProxy = !isEmbedService && isYandexUrl(rawUrl);
-    const iframeSrc = needsProxy
-      ? `/api/proxy-media?url=${encodeURIComponent(resolvedUrl)}`
-      : embedUrl;
+    const iframeSrc = needsProxy ? `/api/proxy-media?url=${encodeURIComponent(resolvedUrl)}` : embedUrl;
 
-    // ── Office files (local/public URLs) → Microsoft Office Online ────────
+    // ── Office files → Microsoft Office Online ────────────────────────────
     if (fileType === 'office' && !isEmbedService) {
       const officeSrc = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(resolvedUrl)}`;
       return (
-        <div className="w-full h-full bg-white relative">
-          <iframe
-            src={officeSrc}
-            className="absolute inset-0 w-full h-full border-none"
-            allowFullScreen
-            title="Office Viewer"
-          />
+        <div className="relative w-full h-full bg-white">
+          <iframe src={officeSrc} className="absolute inset-0 w-full h-full border-none" allowFullScreen title="Office Viewer" />
+          <FsBtn onFs={() => setFullscreenContent({ url: resolvedUrl, type: 'iframe', iframeSrc: officeSrc })} />
         </div>
       );
     }
 
+    // ── Generic iframe (PDF, YouTube, Google Slides, Yandex proxy…) ──────
     return (
-      <div className="w-full h-full bg-white relative">
+      <div className="relative w-full h-full bg-white">
         {error && (
           <div className="absolute top-0 left-0 right-0 z-10 bg-red-50 border-b border-red-200 px-4 py-2 flex items-center gap-2">
             <span className="text-xs text-red-600">{error}</span>
-            <a href={resolvedUrl} target="_blank" rel="noreferrer" className="text-xs text-[#002D57] underline ml-auto">
-              Открыть в новой вкладке
-            </a>
+            <a href={resolvedUrl} target="_blank" rel="noreferrer" className="text-xs text-[#002D57] underline ml-auto">Открыть в новой вкладке</a>
           </div>
         )}
         <iframe
@@ -531,8 +455,8 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
           allowFullScreen
           title="Content Player"
-          onError={() => setError('Файл недоступен для просмотра')}
         />
+        <FsBtn onFs={() => setFullscreenContent({ url: resolvedUrl, type: 'iframe', iframeSrc })} />
       </div>
     );
   };
@@ -637,6 +561,63 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="fixed inset-0 bg-white z-[999] flex flex-col">
+
+      {/* ── Universal fullscreen overlay — absolute inset-0 inside CoursePlayer ── */}
+      {/* Works in Bitrix iframe and Bitrix Mobile because CoursePlayer is already  */}
+      {/* fixed inset-0 (= viewport), so this overlay fills the entire viewport.    */}
+      {fullscreenContent && (
+        <div
+          className="absolute inset-0 z-50 bg-black flex flex-col"
+          style={{ paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+        >
+          {/* Close button */}
+          <button
+            onClick={() => setFullscreenContent(null)}
+            title="Свернуть"
+            className="absolute top-4 right-4 z-10 flex items-center gap-1.5 pl-2.5 pr-3 py-2 bg-black/60 hover:bg-black/80 active:bg-black text-white rounded-xl text-[10px] font-black uppercase tracking-wide touch-manipulation shadow-lg"
+          >
+            <Minimize2 size={14} />
+            <span>Свернуть</span>
+          </button>
+          <div className="flex-1 relative overflow-hidden">
+            {/* Video */}
+            {fullscreenContent.type === 'video' && (
+              <video
+                src={fullscreenContent.url}
+                controls autoPlay playsInline
+                className="absolute inset-0 w-full h-full object-contain"
+              />
+            )}
+            {/* Image */}
+            {fullscreenContent.type === 'image' && (
+              <img
+                src={fullscreenContent.url}
+                alt=""
+                className="absolute inset-0 w-full h-full object-contain"
+              />
+            )}
+            {/* Audio */}
+            {fullscreenContent.type === 'audio' && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-8 bg-[#001830]">
+                <div className="w-24 h-24 bg-[#00A3FF]/20 rounded-[32px] flex items-center justify-center">
+                  <Zap size={48} className="text-[#00A3FF]" />
+                </div>
+                <audio src={fullscreenContent.url} controls autoPlay className="w-3/4 max-w-md" />
+              </div>
+            )}
+            {/* Iframe: PDF / Google Slides / YouTube / Office / Yandex proxy */}
+            {fullscreenContent.type === 'iframe' && (
+              <iframe
+                src={fullscreenContent.iframeSrc || fullscreenContent.url}
+                className="absolute inset-0 w-full h-full border-none"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+                allowFullScreen
+                title="Полный экран"
+              />
+            )}
+          </div>
+        </div>
+      )}
       {/* Header */}
       <header className="h-14 sm:h-20 border-b border-gray-100 px-4 sm:px-10 flex items-center justify-between shrink-0 gap-3">
         <button
@@ -759,7 +740,7 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
                     : []
                   ).filter(u => u?.trim());
                   return urls.length > 0 && !showQuiz ? urls.map((url, i) => (
-                    <div key={i} className="mb-5 sm:mb-10 overflow-hidden border-2 border-gray-100 shadow-sm sm:shadow-2xl bg-gray-50 rounded-2xl sm:rounded-[32px] h-[56vw] sm:h-[60vh] lg:h-[70vh] sm:min-h-[360px] lg:min-h-[500px]">
+                    <div key={i} className="mb-5 sm:mb-10 overflow-hidden border-2 border-gray-100 shadow-sm sm:shadow-2xl bg-gray-50 rounded-2xl sm:rounded-[32px] h-[62vw] min-h-[240px] sm:h-[65vh] sm:min-h-[400px]">
                       <MediaBlock rawUrl={url} />
                     </div>
                   )) : null;
