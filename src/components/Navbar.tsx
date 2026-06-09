@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { UserProfile, Course } from '../types';
 import { Bell, Search, X, BookOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -17,6 +17,7 @@ export default function Navbar({ user, courses = [], onSelectCourse, onNavigate 
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [banner, setBanner] = useState<string | null>(null);
+  const notifPanelRef = useRef<HTMLDivElement>(null);
   // Use sessionStorage key so banner fires at most once per browser session per user
   const bannerShownKey = `notif_banner_shown_${user.id}`;
 
@@ -99,18 +100,31 @@ export default function Navbar({ user, courses = [], onSelectCourse, onNavigate 
     return () => unsub();
   }, [user.id]);
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  // Close panel on outside click
+  useEffect(() => {
+    if (!showNotifications) return;
+    const handler = (e: MouseEvent) => {
+      if (notifPanelRef.current && !notifPanelRef.current.contains(e.target as Node)) {
+        setShowNotifications(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showNotifications]);
 
-  const markAllRead = async () => {
+  const unreadNotifications = notifications.filter(n => !n.read);
+
+  const markAllRead = () => {
+    const unreadIds = unreadNotifications.map(n => n.id);
+    if (!unreadIds.length) return;
     // Optimistic update first — UI responds instantly
-    const unreadIds = notifications.filter(n => !n.read).map(n => n.id);
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
     // Persist to Firestore (errors are swallowed inside the method)
     contentService.markNotificationsReadByIds(unreadIds);
   };
 
-  const handleNotifClick = async (id: string) => {
-    // Optimistic update first
+  const handleNotifClick = (id: string) => {
+    // Optimistic update first — notification disappears from panel immediately
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
     // Persist to Firestore
     contentService.markNotificationRead(id);
@@ -207,52 +221,54 @@ export default function Navbar({ user, courses = [], onSelectCourse, onNavigate 
       </div>
 
       <div className="flex items-center gap-6">
-        <div className="relative">
-          <button 
+        <div className="relative" ref={notifPanelRef}>
+          <button
             onClick={() => setShowNotifications(!showNotifications)}
             className="relative text-gray-300 hover:text-[#002D57] transition-all"
           >
             <Bell size={20} />
-            {unreadCount > 0 && (
+            {unreadNotifications.length > 0 && (
               <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-[#00A3FF] rounded-full border-2 border-white shadow-sm"></span>
             )}
           </button>
 
           <AnimatePresence>
             {showNotifications && (
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0, y: 10, scale: 0.95 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 10, scale: 0.95 }}
                 className="absolute right-0 mt-6 w-80 bg-white rounded-3xl shadow-2xl border border-gray-100 overflow-hidden"
               >
                 <div className="p-6 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
-                  <h4 className="text-[10px] font-black uppercase tracking-widest text-[#002D57]">Уведомления</h4>
+                  <h4 className="text-[10px] font-black uppercase tracking-widest text-[#002D57]">
+                    Уведомления{unreadNotifications.length > 0 && ` (${unreadNotifications.length})`}
+                  </h4>
                   <button onClick={() => setShowNotifications(false)}><X size={14} className="text-gray-300" /></button>
                 </div>
                 <div className="divide-y divide-gray-50 max-h-[300px] overflow-y-auto">
-                  {notifications.length === 0 ? (
+                  {unreadNotifications.length === 0 ? (
                     <div className="p-8 text-center text-[10px] font-bold uppercase tracking-widest text-gray-300">
-                      Нет уведомлений
+                      Нет новых уведомлений
                     </div>
-                  ) : notifications.map(notif => (
+                  ) : unreadNotifications.map(notif => (
                     <div
                       key={notif.id}
-                      className={`p-6 hover:bg-gray-50 transition-colors cursor-pointer relative ${!notif.read ? 'bg-[#002D57]/[0.02]' : ''}`}
+                      className="p-6 hover:bg-[#F5F7FA] transition-colors cursor-pointer relative bg-[#002D57]/[0.02]"
                       onClick={() => handleNotifClick(notif.id)}
                     >
-                      {!notif.read && <div className="absolute left-2 top-1/2 -translate-y-1/2 w-1 h-1 bg-[#00A3FF] rounded-full" />}
+                      <div className="absolute left-2 top-1/2 -translate-y-1/2 w-1.5 h-1.5 bg-[#00A3FF] rounded-full" />
                       <div className="flex justify-between items-start mb-2">
-                        <p className={`text-xs font-bold uppercase tracking-tight ${!notif.read ? 'text-[#002D57]' : 'text-gray-400'}`}>{notif.title}</p>
+                        <p className="text-xs font-bold uppercase tracking-tight text-[#002D57]">{notif.title}</p>
                         <span className="text-[8px] font-bold text-gray-300 uppercase">{notif.time}</span>
                       </div>
                       <p className="text-[10px] text-gray-400 font-medium leading-relaxed">{notif.text}</p>
                     </div>
                   ))}
                 </div>
-                {notifications.length > 0 && (
+                {unreadNotifications.length > 0 && (
                   <button
-                    onClick={markAllRead}
+                    onClick={() => { markAllRead(); setShowNotifications(false); }}
                     className="w-full py-4 text-[10px] font-black uppercase tracking-widest text-[#00A3FF] bg-white border-t border-gray-100 hover:bg-gray-50 transition-colors"
                   >
                     Прочитать все

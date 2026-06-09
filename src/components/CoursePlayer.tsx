@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronLeft, ChevronRight, CheckCircle, HelpCircle, Trophy, X, Send, Zap } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CheckCircle, HelpCircle, Trophy, X, Send, Zap, Maximize2, Minimize2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 import { Course, UserProfile } from '../types';
@@ -326,6 +326,29 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
     const [fileType, setFileType] = useState<'video' | 'audio' | 'image' | 'pdf' | 'office' | 'embed'>('embed');
     const [resolving, setResolving] = useState(true);
     const [error, setError] = useState('');
+    const [isFullscreen, setIsFullscreen] = useState(false);
+    const videoRef = useRef<HTMLVideoElement>(null);
+
+    // Track fullscreen state changes (Esc key, etc.)
+    useEffect(() => {
+      const onChange = () => setIsFullscreen(!!document.fullscreenElement);
+      document.addEventListener('fullscreenchange', onChange);
+      document.addEventListener('webkitfullscreenchange', onChange);
+      return () => {
+        document.removeEventListener('fullscreenchange', onChange);
+        document.removeEventListener('webkitfullscreenchange', onChange);
+      };
+    }, []);
+
+    const toggleFullscreen = () => {
+      const el = videoRef.current;
+      if (!el) return;
+      if (!document.fullscreenElement) {
+        (el.requestFullscreen?.() ?? (el as any).webkitRequestFullscreen?.());
+      } else {
+        (document.exitFullscreen?.() ?? (document as any).webkitExitFullscreen?.());
+      }
+    };
 
     useEffect(() => {
       if (!rawUrl) { setResolving(false); return; }
@@ -374,15 +397,26 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
     // ── Video ──────────────────────────────────────────────────────────────
     if (fileType === 'video') {
       return (
-        <video
-          src={resolvedUrl}
-          controls
-          className="w-full h-full object-contain bg-black"
-          preload="metadata"
-          onError={() => setError('Не удалось воспроизвести видео')}
-        >
-          Ваш браузер не поддерживает воспроизведение видео.
-        </video>
+        <div className="relative w-full h-full bg-black group">
+          <video
+            ref={videoRef}
+            src={resolvedUrl}
+            controls
+            className="w-full h-full object-contain"
+            preload="metadata"
+            onError={() => setError('Не удалось воспроизвести видео')}
+          >
+            Ваш браузер не поддерживает воспроизведение видео.
+          </video>
+          {/* Fullscreen button — visible on hover */}
+          <button
+            onClick={toggleFullscreen}
+            title={isFullscreen ? 'Выйти из полного экрана' : 'На весь экран'}
+            className="absolute bottom-14 right-3 z-20 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 hover:bg-black/90 text-white rounded-lg p-2"
+          >
+            {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          </button>
+        </div>
       );
     }
 
