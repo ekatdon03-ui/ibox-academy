@@ -198,15 +198,25 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
       // 2. Update User Documents (assignedCourses)
       await contentService.massAssignCourse(courseId, targetUserIds);
 
-      // 3. Create Bitrix24 tasks for newly assigned users (best-effort, fire-and-forget)
+      // 3. Create Bitrix24 tasks for newly assigned users
       if (course && trulyNew.length > 0) {
+        let taskOk = 0, taskFail = 0;
         for (const uid of trulyNew) {
           const u = users.find(u => u.id === uid);
-          if (u?.bitrixId) {
-            bitrixService.createCourseTask(u.bitrixId, course.title, course.description)
-              .catch(() => {});
+          try {
+            await bitrixService.createCourseTask(
+              u?.bitrixId ?? '',
+              course.title,
+              course.description
+            );
+            taskOk++;
+          } catch (e: any) {
+            taskFail++;
+            console.warn(`[bitrix-task] uid=${uid}:`, e.message);
           }
         }
+        if (taskOk > 0)   showToast(`Создано задач в Битрикс: ${taskOk}`);
+        if (taskFail > 0) showToast(`Не создано задач в Битрикс: ${taskFail} (проверьте scope: task)`, true);
       }
 
       // 4. Update local state
@@ -253,10 +263,16 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
             'Новая задача',
             `Вам назначен новый учебный курс: ${course.title}`
           );
-          // Create Bitrix24 task for the employee (best-effort, won't block assignment)
-          if (user?.bitrixId) {
-            bitrixService.createCourseTask(user.bitrixId, course.title, course.description)
-              .catch(() => {});
+          // Create Bitrix24 task — await so we can show the result to the admin
+          try {
+            const taskResult = await bitrixService.createCourseTask(
+              user?.bitrixId ?? '',
+              course.title,
+              course.description
+            );
+            showToast(`Задача #${taskResult.taskId} создана в Битрикс для ${user?.name ?? 'сотрудника'}`);
+          } catch (taskErr: any) {
+            showToast(`Курс назначен, задача в Битрикс не создана: ${taskErr.message}`, true);
           }
         }
       }

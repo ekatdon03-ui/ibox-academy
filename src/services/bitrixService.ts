@@ -191,53 +191,54 @@ class BitrixService {
   /**
    * Create a Bitrix24 task "Пройти курс: …" assigned to the given employee.
    * Requires the `task` scope in the app's Bitrix24 permissions.
-   * Returns the created task ID, or null if BX24 is not available / call fails.
+   * Creator (постановщик) is always the calling user — i.e. the admin logged in.
+   * Throws on any error so the caller can show feedback to the admin.
    */
   async createCourseTask(
     bitrixUserId: string,
     courseTitle: string,
     courseDescription: string
-  ): Promise<{ taskId: string } | null> {
-    if (!this.isAvailable() || !bitrixUserId) return null;
-
-    // Deadline 14 days from today
-    const dl = new Date();
-    dl.setDate(dl.getDate() + 14);
-    // Bitrix24 expects "YYYY-MM-DDThh:mm:ss+HH:MM"
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const offset = -dl.getTimezoneOffset();
-    const sign = offset >= 0 ? '+' : '-';
-    const absOff = Math.abs(offset);
-    const deadlineStr =
-      `${dl.getFullYear()}-${pad(dl.getMonth() + 1)}-${pad(dl.getDate())}` +
-      `T23:59:59${sign}${pad(Math.floor(absOff / 60))}:${pad(absOff % 60)}`;
-
-    try {
-      const result = await this.callMethod('tasks.task.add', {
-        fields: {
-          TITLE: `Пройти курс: ${courseTitle}`,
-          DESCRIPTION:
-            `Вам назначен обязательный учебный курс в Академии iBOX.\n\n` +
-            `Курс: ${courseTitle}\n` +
-            (courseDescription ? `${courseDescription}\n\n` : '\n') +
-            `Откройте приложение iBOX Academy в Битриксе для прохождения курса.`,
-          RESPONSIBLE_ID: parseInt(bitrixUserId, 10),
-          DEADLINE: deadlineStr,
-          ALLOW_CHANGE_DEADLINE: 'Y',
-          PRIORITY: '1',       // Normal
-          TASK_CONTROL: 'N',   // No mandatory acceptance by creator
-        },
-      });
-      const taskId = result?.task?.id ?? result?.id;
-      if (taskId) {
-        console.log(`[bitrix] task created: #${taskId} → user ${bitrixUserId}`);
-        return { taskId: String(taskId) };
-      }
-      return null;
-    } catch (e: any) {
-      console.warn('[bitrix] createCourseTask failed:', e.message);
-      return null;
+  ): Promise<{ taskId: string }> {
+    if (!this.isAvailable()) {
+      throw new Error('BX24 SDK недоступен — приложение должно быть открыто внутри Битрикс24');
     }
+    if (!bitrixUserId || isNaN(parseInt(bitrixUserId, 10))) {
+      throw new Error('У сотрудника не заполнен ID в Битрикс (сделайте синхронизацию с Битрикс)');
+    }
+
+    // Deadline: 7 days from now, 23:59:59 local time
+    const dl = new Date();
+    dl.setDate(dl.getDate() + 7);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const tz  = -dl.getTimezoneOffset(); // positive for UTC+
+    const tzSign = tz >= 0 ? '+' : '-';
+    const tzAbs  = Math.abs(tz);
+    const deadline =
+      `${dl.getFullYear()}-${pad(dl.getMonth() + 1)}-${pad(dl.getDate())}` +
+      `T23:59:59${tzSign}${pad(Math.floor(tzAbs / 60))}:${pad(tzAbs % 60)}`;
+
+    // tasks.task.add — only standard, documented fields
+    const result = await this.callMethod('tasks.task.add', {
+      fields: {
+        TITLE: `Пройти курс: ${courseTitle}`,
+        DESCRIPTION:
+          `Вам назначен обязательный учебный курс в Академии iBOX.\n\n` +
+          `Курс: ${courseTitle}` +
+          (courseDescription ? `\n${courseDescription}` : '') +
+          `\n\nОткройте приложение iBOX Academy в Битриксе для прохождения курса.`,
+        RESPONSIBLE_ID: parseInt(bitrixUserId, 10),
+        DEADLINE: deadline,
+        ALLOW_CHANGE_DEADLINE: 'Y',
+        PRIORITY: '1',
+      },
+    });
+
+    // Bitrix24 returns { task: { id: "N", ... } }
+    const taskId = result?.task?.id ?? result?.id;
+    if (!taskId) throw new Error('Битрикс не вернул ID задачи — проверьте права приложения (scope: task)');
+
+    console.log(`[bitrix] task #${taskId} created → responsible: ${bitrixUserId}`);
+    return { taskId: String(taskId) };
   }
 
   resize(height: number = 800) {
