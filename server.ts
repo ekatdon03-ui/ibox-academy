@@ -377,12 +377,17 @@ async function startServer() {
   });
 
   // ─────────────────────────────────────────────────────────────────────
-  // EXTRACT MEDIA KNOWLEDGE — server-side AI extraction for videos/audio/PDF
-  // Uses Gemini Files API for large files and video/audio (speech transcription)
+  // EXTRACT MEDIA KNOWLEDGE
   // POST /api/extract-media-knowledge  { url: string }
+  //
+  // Strategy by URL type:
+  //   YouTube  → fileData.fileUri (Gemini native, no download, any length)
+  //   Video/Audio (any size) → stream source URL → Gemini Files API resumable
+  //                            upload without ever buffering the file in memory
+  //   PDF / image (≤15 MB) → inline base64 (fast path)
   // ─────────────────────────────────────────────────────────────────────
 
-  /** Resolve share links (Yandex Disk, Google Drive) to direct download URLs */
+  /** Resolve share links to direct download URLs */
   async function resolveDownloadUrl(raw: string): Promise<string> {
     let url = raw;
     if (url.includes('disk.yandex.') || url.includes('yadi.sk')) {
@@ -409,89 +414,128 @@ async function startServer() {
     return url;
   }
 
-  /** Try to fetch YouTube auto-captions via timedtext API */
-  async function getYouTubeTranscript(videoId: string): Promise<string | null> {
-    for (const lang of ['ru', 'uk', 'en']) {
-      try {
-        const r = await axios.get(
-          `https://www.youtube.com/api/timedtext?v=${videoId}&lang=${lang}&fmt=json3`,
-          { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 10000 }
-        );
-        if (r.data?.events && Array.isArray(r.data.events)) {
-          const text = r.data.events
-            .filter((e: any) => e.segs)
-            .map((e: any) => e.segs.map((s: any) => s.utf8 ?? '').join(''))
-            .filter(Boolean)
-            .join(' ')
-            .trim();
-          if (text.length > 50) return `[Транскрипция YouTube (${lang})]:\n\n${text}`;
-        }
-      } catch {}
-    }
-    return null;
+  /** Detect MIME type from URL extension when Content-Type is unhelpful */
+  function mimeFromExt(url: string): string {
+    const ext = url.split('?')[0].split('.').pop()?.toLowerCase() ?? '';
+    const map: Record<string, string> = {
+      mp4: 'video/mp4', webm: 'video/webm', avi: 'video/x-msvideo',
+      mov: 'video/quicktime', mkv: 'video/x-matroska',
+      mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg',
+      m4a: 'audio/mp4', aac: 'audio/aac',
+      pdf: 'application/pdf',
+      pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    };
+    return map[ext] || '';
   }
 
-  /** Upload buffer to Gemini Files API (resumable) and return file URI */
-  async function uploadToFilesApi(buf: Buffer, mimeType: string, apiKey: string): Promise<{ uri: string; name: string }> {
-    // Step 1: Initiate resumable upload
+  /**
+   * Stream-pipe: source URL → Gemini Files API resumable upload.
+   * Never loads the entire file into memory — suitable for GB-sized videos.
+   */
+  async function streamToFilesApi(
+    sourceUrl: string,
+    fallbackMime: string,
+    apiKey: string
+  ): Promise<{ uri: string; name: string }> {
+    // Open streaming download — get response headers before reading body
+    const dlRes = await axios.get(sourceUrl, {
+      responseType: 'stream',
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ibox-academy/1.0)' },
+      timeout: 7200000,           // 2 h socket inactivity
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity,
+    });
+
+    const contentLength = dlRes.headers['content-length']
+      ? parseInt(dlRes.headers['content-length'] as string, 10)
+      : -1;
+
+    let mimeType =
+      (dlRes.headers['content-type'] as string | undefined)?.split(';')[0]?.trim() || '';
+    if (!mimeType || mimeType === 'application/octet-stream') mimeType = fallbackMime;
+
+    // Gemini Files API hard limit is 2 GB
+    if (contentLength > 0 && contentLength > 2 * 1024 * 1024 * 1024) {
+      (dlRes.data as any).destroy?.();
+      throw new Error(
+        'Файл превышает 2 ГБ — максимум для Gemini Files API. ' +
+        'Загрузите видео на YouTube и используйте YouTube-ссылку.'
+      );
+    }
+
+    console.log(
+      `[extract-media] streaming upload → Files API | ` +
+      `size: ${contentLength > 0 ? (contentLength / 1024 / 1024).toFixed(0) + ' MB' : 'unknown'} | ` +
+      `mime: ${mimeType}`
+    );
+
+    // ── Step 1: Initiate resumable upload ──
+    const initHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'X-Goog-Upload-Command': 'start',
+      'X-Goog-Upload-Header-Content-Type': mimeType,
+    };
+    if (contentLength > 0) {
+      initHeaders['X-Goog-Upload-Header-Content-Length'] = String(contentLength);
+    }
+
     const initRes = await axios.post(
       `https://generativelanguage.googleapis.com/upload/v1beta/files?uploadType=resumable&key=${apiKey}`,
       { file: { displayName: 'ibox_media' } },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Goog-Upload-Command': 'start',
-          'X-Goog-Upload-Header-Content-Type': mimeType,
-          'X-Goog-Upload-Header-Content-Length': String(buf.length),
-        },
-        timeout: 20000,
-      }
+      { headers: initHeaders, timeout: 20000 }
     );
     const uploadUrl = initRes.headers['x-goog-upload-url'] as string;
-    if (!uploadUrl) throw new Error('Gemini Files API: no upload URL in response');
+    if (!uploadUrl) throw new Error('Gemini Files API: no upload URL');
 
-    // Step 2: Upload + finalize
-    const uploadRes = await axios.put(uploadUrl, buf, {
-      headers: {
-        'Content-Type': mimeType,
-        'X-Goog-Upload-Command': 'upload, finalize',
-        'X-Goog-Upload-Offset': '0',
-        'Content-Length': String(buf.length),
-      },
+    // ── Step 2: Stream source → Gemini (no intermediate buffer) ──
+    const uploadHeaders: Record<string, string> = {
+      'Content-Type': mimeType,
+      'X-Goog-Upload-Command': 'upload, finalize',
+      'X-Goog-Upload-Offset': '0',
+    };
+    if (contentLength > 0) uploadHeaders['Content-Length'] = String(contentLength);
+
+    const uploadRes = await axios.put(uploadUrl, dlRes.data, {
+      headers: uploadHeaders,
       maxBodyLength: Infinity,
       maxContentLength: Infinity,
-      timeout: 600000,
+      timeout: 7200000, // 2 h — enough for a 10 GB file on a slow pipe
     });
+
     const file = uploadRes.data?.file;
     if (!file?.uri) throw new Error('Gemini Files API: upload did not return file URI');
 
-    // Step 3: Poll until ACTIVE
+    // ── Step 3: Poll until ACTIVE ──
     let state: string = file.state ?? 'PROCESSING';
-    let retries = 0;
-    while (state === 'PROCESSING' && retries < 60) {
-      await new Promise(r => setTimeout(r, 3000));
+    let attempts = 0;
+    while (state === 'PROCESSING' && attempts < 120) {
+      await new Promise(r => setTimeout(r, 5000));
       try {
         const poll = await axios.get(
           `https://generativelanguage.googleapis.com/v1beta/${file.name}?key=${apiKey}`,
-          { timeout: 10000 }
+          { timeout: 15000 }
         );
         state = poll.data?.state ?? 'PROCESSING';
       } catch {}
-      retries++;
+      attempts++;
     }
-    if (state !== 'ACTIVE') throw new Error(`Gemini Files API: file stuck in state ${state} after ${retries * 3}s`);
+    if (state !== 'ACTIVE') {
+      throw new Error(`Gemini: файл завис в состоянии ${state} (${attempts * 5} с)`);
+    }
+
     return { uri: file.uri as string, name: file.name as string };
   }
 
-  const EXTRACT_PROMPT = `Ты — точный конвертер материалов в текст. Задача: извлечь ВЕСЬ контент из этого файла без пропусков.
+  const EXTRACT_PROMPT = `Ты — точный конвертер материалов в текст. Извлеки ВЕСЬ контент без пропусков.
 
-ОБЯЗАТЕЛЬНО:
-- Для видео/аудио: транскрибируй речь полностью и дословно. Если говорят несколько людей — различай их ("Спикер 1:", "Спикер 2:").
-- Для презентаций/PDF: обработай КАЖДЫЙ слайд/страницу — не пропускай ни одного.
-- Сохраняй исходную структуру: заголовки, списки, таблицы, цифры, факты.
+ПРАВИЛА:
+- Видео/аудио: транскрибируй речь дословно. Разных спикеров обозначай ("Спикер 1:", "Спикер 2:").
+- Презентации/PDF: обработай КАЖДЫЙ слайд / страницу — ни одного не пропускай.
+- Сохраняй структуру: заголовки, списки, таблицы, числа, факты.
 - Нумеруй разделы: "## Слайд 1", "## Часть 2" и т.д.
-- Не сокращай и не перефразируй — переноси текст/речь как есть.
-- Не добавляй комментарии от себя.`;
+- Не сокращай и не перефразируй — текст/речь как есть.
+- Никаких собственных комментариев.`;
 
   app.post('/api/extract-media-knowledge', async (req: any, res: any) => {
     const GEMINI_KEY = process.env.GEMINI_API_KEY;
@@ -500,111 +544,106 @@ async function startServer() {
     const { url: rawUrl } = req.body as { url?: string };
     if (!rawUrl) return res.status(400).json({ error: 'url required' });
 
+    const geminiGenerate = async (parts: any[]): Promise<string> => {
+      const r = await axios.post(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
+        {
+          contents: [{ role: 'user', parts }],
+          generationConfig: { maxOutputTokens: 65536, temperature: 0.1 },
+        },
+        { headers: { 'Content-Type': 'application/json' }, timeout: 600000 }
+      );
+      return r.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+    };
+
     try {
-      // ── YouTube: try captions API first ──
-      const ytMatch = rawUrl.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]+)/);
-      if (ytMatch) {
-        const transcript = await getYouTubeTranscript(ytMatch[1]);
-        if (transcript) return res.json({ text: transcript });
-        return res.status(422).json({
-          error: 'Субтитры для этого YouTube-видео недоступны. Включите субтитры на видео или используйте прямую ссылку на файл.',
-        });
+      // ── YouTube → Gemini native URL support (no download needed, any size) ──
+      if (rawUrl.match(/(?:youtube\.com\/watch|youtu\.be\/|youtube\.com\/shorts\/)/)) {
+        console.log('[extract-media] YouTube native →', rawUrl);
+        const text = await geminiGenerate([
+          { fileData: { mimeType: 'video/mp4', fileUri: rawUrl } },
+          { text: EXTRACT_PROMPT },
+        ]);
+        if (!text) return res.status(422).json({ error: 'ИИ не смог транскрибировать YouTube-видео (возможно, видео закрытое или очень длинное).' });
+        return res.json({ text: text.trim() });
       }
 
-      // ── Resolve share links ──
+      // ── Resolve share links to direct download URL ──
       const downloadUrl = await resolveDownloadUrl(rawUrl);
 
-      // ── Download file (large timeout for videos) ──
-      let fileBuf: Buffer;
-      let mimeType: string;
-      try {
-        const dlRes = await axios.get(downloadUrl, {
-          responseType: 'arraybuffer',
-          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ibox-academy/1.0)' },
-          timeout: 300000,                    // 5 min
-          maxContentLength: 500 * 1024 * 1024, // 500 MB cap
-        });
-        fileBuf = Buffer.from(dlRes.data);
-        mimeType = String(dlRes.headers['content-type'] || '').split(';')[0].trim() || 'application/octet-stream';
-      } catch (e: any) {
-        return res.status(502).json({ error: `Не удалось скачать файл: ${e.message}` });
+      // ── Detect MIME via HEAD (optional, non-blocking) ──
+      let hintMime = mimeFromExt(rawUrl) || mimeFromExt(downloadUrl);
+
+      // ── Decide path: is this a video/audio? ──
+      const isMediaMime = (m: string) => m.startsWith('video/') || m.startsWith('audio/');
+      const looksLikeMedia =
+        isMediaMime(hintMime) ||
+        /\.(mp4|webm|avi|mov|mkv|mp3|wav|ogg|m4a|aac)(\?|$)/i.test(rawUrl);
+
+      if (looksLikeMedia) {
+        // ── Video / Audio → stream to Gemini Files API (no size limit up to 2 GB) ──
+        const { uri: fileUri, name: fileName } = await streamToFilesApi(downloadUrl, hintMime || 'video/mp4', GEMINI_KEY);
+
+        // We now know the actual MIME from the upload — reuse hintMime as fallback
+        const text = await geminiGenerate([
+          { fileData: { mimeType: hintMime || 'video/mp4', fileUri } },
+          { text: EXTRACT_PROMPT },
+        ]);
+
+        // Cleanup (best-effort, fire-and-forget)
+        axios.delete(
+          `https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${GEMINI_KEY}`,
+          { timeout: 10000 }
+        ).catch(() => {});
+
+        if (!text) return res.status(422).json({ error: 'ИИ не смог извлечь контент из видео.' });
+        return res.json({ text: text.trim() });
       }
+
+      // ── PDF / image / document → download + inline (fast for small files) ──
+      const dlRes = await axios.get(downloadUrl, {
+        responseType: 'arraybuffer',
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ibox-academy/1.0)' },
+        timeout: 300000,
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
+      });
+
+      let mimeType = (dlRes.headers['content-type'] as string | undefined)?.split(';')[0]?.trim() || hintMime || 'application/octet-stream';
 
       if (mimeType.includes('text/html')) {
-        return res.status(422).json({
-          error: 'Получена HTML-страница вместо файла. Убедитесь, что доступ открыт «Всем по ссылке».',
-        });
+        return res.status(422).json({ error: 'Получена HTML-страница вместо файла. Убедитесь, что доступ открыт «Всем по ссылке».' });
       }
 
-      // Normalise unknown binary types by extension
-      if (mimeType === 'application/octet-stream' || !mimeType) {
-        const ext = rawUrl.split('?')[0].split('.').pop()?.toLowerCase() ?? '';
-        const extMap: Record<string, string> = {
-          mp4: 'video/mp4', webm: 'video/webm', avi: 'video/x-msvideo', mov: 'video/quicktime',
-          mkv: 'video/x-matroska', mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg',
-          m4a: 'audio/mp4', aac: 'audio/aac', pdf: 'application/pdf',
-          pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-          docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        };
-        if (extMap[ext]) mimeType = extMap[ext];
-      }
+      const fileBuf = Buffer.from(dlRes.data);
 
-      const isMedia = mimeType.startsWith('video/') || mimeType.startsWith('audio/');
-      const isLarge = fileBuf.length > 15 * 1024 * 1024; // > 15 MB → Files API
-
-      let text: string;
-
-      if (isMedia || isLarge) {
-        // ── Gemini Files API (handles video/audio + large files) ──
-        console.log(`[extract-media] Files API upload: ${(fileBuf.length / 1024 / 1024).toFixed(1)} MB, ${mimeType}`);
-        const { uri: fileUri, name: fileName } = await uploadToFilesApi(fileBuf, mimeType, GEMINI_KEY);
-
-        const genRes = await axios.post(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-          {
-            contents: [{
-              role: 'user',
-              parts: [
-                { fileData: { mimeType, fileUri } },
-                { text: EXTRACT_PROMPT },
-              ],
-            }],
-            generationConfig: { maxOutputTokens: 65536, temperature: 0.1 },
-          },
-          { headers: { 'Content-Type': 'application/json' }, timeout: 300000 }
-        );
-        text = genRes.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-
-        // Cleanup uploaded file (best-effort)
+      // Large non-video file → Files API upload (buffered, but PDF won't be GB-sized)
+      if (fileBuf.length > 15 * 1024 * 1024) {
+        const { uri: fileUri, name: fileName } = await streamToFilesApi(downloadUrl, mimeType, GEMINI_KEY);
+        const text = await geminiGenerate([
+          { fileData: { mimeType, fileUri } },
+          { text: EXTRACT_PROMPT },
+        ]);
         axios.delete(`https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${GEMINI_KEY}`, { timeout: 10000 }).catch(() => {});
-      } else {
-        // ── Inline base64 (small PDFs, images) ──
-        console.log(`[extract-media] Inline: ${(fileBuf.length / 1024).toFixed(0)} KB, ${mimeType}`);
-        const genRes = await axios.post(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-          {
-            contents: [{
-              role: 'user',
-              parts: [
-                { text: EXTRACT_PROMPT },
-                { inlineData: { data: fileBuf.toString('base64'), mimeType } },
-              ],
-            }],
-            generationConfig: { maxOutputTokens: 65536, temperature: 0.1 },
-          },
-          { headers: { 'Content-Type': 'application/json' }, timeout: 180000 }
-        );
-        text = genRes.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+        if (!text) return res.status(422).json({ error: 'ИИ не смог извлечь контент.' });
+        return res.json({ text: text.trim() });
       }
+
+      // Small file → inline base64 (fastest)
+      console.log(`[extract-media] inline ${(fileBuf.length / 1024).toFixed(0)} KB, ${mimeType}`);
+      const text = await geminiGenerate([
+        { text: EXTRACT_PROMPT },
+        { inlineData: { data: fileBuf.toString('base64'), mimeType } },
+      ]);
 
       if (!text) return res.status(422).json({ error: 'ИИ не смог извлечь контент из файла.' });
 
-      // Strip NotebookLM-style footer if present
+      // Strip NotebookLM footer if present
       const tail = text.slice(-600);
-      const footerIdx = tail.search(/\n[-–—=*]{3,}\s*\n[\s\S]{0,300}NotebookLM/i);
-      const cleaned = footerIdx !== -1 ? text.slice(0, text.length - 600 + footerIdx).trim() : text.trim();
-
+      const fi = tail.search(/\n[-–—=*]{3,}\s*\n[\s\S]{0,300}NotebookLM/i);
+      const cleaned = fi !== -1 ? text.slice(0, text.length - 600 + fi).trim() : text.trim();
       res.json({ text: cleaned });
+
     } catch (e: any) {
       console.error('[extract-media-knowledge]', e.message);
       res.status(500).json({ error: e.message || 'Extraction failed' });

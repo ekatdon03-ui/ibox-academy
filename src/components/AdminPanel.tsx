@@ -1269,27 +1269,36 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
 
     for (let i = 0; i < urls.length; i++) {
       const url = urls[i];
-      if (urls.length > 1) showFormToast(`Обработка файла ${i + 1} из ${urls.length}…`);
+      const isVideo = /\.(mp4|webm|avi|mov|mkv|m4v)(\?|$)/i.test(url) ||
+        url.match(/(?:youtube\.com\/watch|youtu\.be\/|youtube\.com\/shorts\/)/) !== null;
+      const label = urls.length > 1 ? `Файл ${i + 1} из ${urls.length}` : 'Файл';
+
+      if (isVideo) {
+        showFormToast(`${label}: загружаю видео в ИИ, это может занять несколько минут…`);
+      } else if (urls.length > 1) {
+        showFormToast(`Обработка: ${label}…`);
+      }
 
       try {
         let extracted = '';
 
         if (url.startsWith('data:')) {
-          // Inline data URI — send directly to AI (existing path)
+          // Inline data URI — existing client-side path
           const parts = url.split(',');
           const b64 = parts[1];
           const mime = parts[0].split(':')[1].split(';')[0];
           extracted = await aiService.extractContentFromMedia(b64, mime) ?? '';
         } else {
-          // Remote URL — use server-side extraction (handles video, audio, large files)
-          const resp = await axios.post('/api/extract-media-knowledge', { url }, { timeout: 700000 });
+          // Remote URL — server-side (stream to Gemini Files API for video, inline for PDF)
+          // timeout: 0 = no client-side timeout (large videos can take 20+ min)
+          const resp = await axios.post('/api/extract-media-knowledge', { url }, { timeout: 0 });
           extracted = resp.data?.text ?? '';
         }
 
         if (extracted) results.push(extracted);
       } catch (err: any) {
-        const msg = err.response?.data?.error || err.message || 'Ошибка';
-        showFormToast(`Файл ${i + 1}: ${msg}`, true);
+        const msg = (err.response?.data?.error || err.message || 'Ошибка').substring(0, 120);
+        showFormToast(`${label}: ${msg}`, true);
       }
     }
 
