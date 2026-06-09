@@ -139,7 +139,7 @@ export default function Navbar({ user, courses = [], onSelectCourse, onNavigate 
             initial={{ opacity: 0, y: -60 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -60 }}
-            className="fixed top-4 left-1/2 -translate-x-1/2 z-[200] flex items-center gap-4 bg-[#002D57] text-white px-8 py-4 rounded-2xl shadow-2xl"
+            className="fixed top-16 sm:top-4 left-2 right-2 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 z-[200] flex items-center gap-3 sm:gap-4 bg-[#002D57] text-white px-5 sm:px-8 py-3 sm:py-4 rounded-2xl shadow-2xl"
           >
             <BookOpen size={18} className="text-[#00A3FF] shrink-0" />
             <span className="text-sm font-bold">{banner}</span>
@@ -156,9 +156,14 @@ export default function Navbar({ user, courses = [], onSelectCourse, onNavigate 
         )}
       </AnimatePresence>
 
-    <header className="h-20 bg-white/80 backdrop-blur-md border-b border-gray-100 flex items-center justify-between px-10 fixed top-0 right-0 left-72 z-40">
-      {/* Search */}
-      <div ref={searchRef} className="relative w-96">
+    <header className="h-14 sm:h-20 bg-white/80 backdrop-blur-md border-b border-gray-100 flex items-center justify-between px-4 sm:px-10 fixed top-0 right-0 left-0 sm:left-16 z-40">
+      {/* Mobile: app title */}
+      <div className="sm:hidden font-display font-black text-sm uppercase tracking-tight text-[#002D57] shrink-0">
+        iBOX Academy
+      </div>
+
+      {/* Desktop: search */}
+      <div ref={searchRef} className="hidden sm:block relative w-96">
         <div className="flex items-center gap-4 bg-[#F5F7FA] px-6 py-3 rounded-2xl border border-gray-50 focus-within:border-[#00A3FF] transition-all">
           <Search size={16} className="text-gray-300 shrink-0" />
           <input
@@ -279,7 +284,8 @@ export default function Navbar({ user, courses = [], onSelectCourse, onNavigate 
           </AnimatePresence>
         </div>
 
-        <div className="flex items-center gap-5 pl-8 border-l border-gray-100">
+        {/* Desktop: name + position + avatar */}
+        <div className="hidden sm:flex items-center gap-5 pl-8 border-l border-gray-100">
           <div className="text-right">
             <p className="font-display font-black text-xs uppercase tracking-tight text-[#002D57] leading-none">{user.name}</p>
             <p className="text-[8px] text-[#00A3FF] font-black uppercase tracking-[0.2em] mt-1.5">{user.position}</p>
@@ -287,6 +293,10 @@ export default function Navbar({ user, courses = [], onSelectCourse, onNavigate 
           <div className="w-11 h-11 rounded-2xl overflow-hidden bg-[#002D57] flex items-center justify-center text-white font-display font-black text-xs border border-gray-100 shadow-xl">
             {user.name?.split(' ').map(n => n[0] || '').join('') || '?'}
           </div>
+        </div>
+        {/* Mobile: avatar only */}
+        <div className="sm:hidden w-9 h-9 rounded-xl overflow-hidden bg-[#002D57] flex items-center justify-center text-white font-display font-black text-xs">
+          {user.name?.split(' ').map(n => n[0] || '').join('') || '?'}
         </div>
       </div>
     </header>

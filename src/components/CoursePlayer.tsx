@@ -586,19 +586,20 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="fixed inset-0 bg-white z-[999] flex flex-col">
-      <header className="h-20 border-b border-gray-100 px-10 flex items-center justify-between shrink-0">
+      {/* Header */}
+      <header className="h-14 sm:h-20 border-b border-gray-100 px-4 sm:px-10 flex items-center justify-between shrink-0 gap-3">
         <button
           onClick={onClose}
-          className="flex items-center gap-2 font-bold text-gray-400 hover:text-[#002D57] transition-colors text-sm"
+          className="flex items-center gap-1 sm:gap-2 font-bold text-gray-400 hover:text-[#002D57] transition-colors text-xs sm:text-sm shrink-0"
         >
-          <ChevronLeft size={20} />
-          Назад к курсам
+          <ChevronLeft size={18} />
+          <span className="hidden sm:inline">Назад к курсам</span>
         </button>
-        <div className="text-center">
-          <p className="text-[10px] uppercase font-bold text-gray-400 tracking-widest mb-1">{course.category}</p>
-          <h3 className="font-display font-black text-[#002D57] tracking-tight uppercase leading-none">{course.title}</h3>
+        <div className="text-center min-w-0 flex-1">
+          <p className="text-[9px] sm:text-[10px] uppercase font-bold text-gray-400 tracking-widest mb-0.5 hidden sm:block">{course.category}</p>
+          <h3 className="font-display font-black text-[#002D57] tracking-tight uppercase leading-none text-xs sm:text-sm truncate">{course.title}</h3>
         </div>
-        <div className="w-40 h-2 bg-gray-100 rounded-full overflow-hidden">
+        <div className="w-20 sm:w-40 h-1.5 sm:h-2 bg-gray-100 rounded-full overflow-hidden shrink-0">
           <div
             className="h-full bg-[#00A3FF] transition-all duration-500"
             style={{ width: `${((currentLessonIdx + (showQuiz ? 1 : 0)) / (lessons.length + (hasFinalQuiz ? 1 : 0))) * 100}%` }}
@@ -607,7 +608,7 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
       </header>
 
       <div className="flex-1 flex overflow-hidden">
-        {/* Sidebar */}
+        {/* Desktop sidebar — lessons list */}
         <aside className="w-72 border-r border-gray-100 bg-gray-50/10 overflow-y-auto p-6 hidden lg:block shrink-0">
           <h4 className="text-[10px] uppercase tracking-widest font-black text-[#002D57]/20 mb-6 font-display">Содержание</h4>
           <div className="space-y-2">
@@ -648,8 +649,43 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
           </div>
         </aside>
 
+        {/* Mobile lesson selector strip (shown only on < lg) */}
+        <div className="lg:hidden flex-none w-full border-b border-gray-100 bg-gray-50/50 overflow-x-auto absolute top-14 left-0 right-0 z-10 hidden"
+             style={{ display: 'none' }} />
+
         {/* Main content */}
-        <main className="flex-1 overflow-y-auto bg-white">
+        <main className="flex-1 overflow-y-auto bg-white flex flex-col">
+          {/* Mobile/tablet lesson picker */}
+          {lessons.length > 1 && (
+            <div className="lg:hidden flex gap-2 px-4 py-2.5 overflow-x-auto shrink-0 border-b border-gray-100 bg-gray-50/60"
+                 style={{ WebkitOverflowScrolling: 'touch' }}>
+              {lessons.map((lesson, idx) => (
+                <button
+                  key={lesson.id || idx}
+                  onClick={() => handleLessonChange(idx)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl whitespace-nowrap text-[9px] font-black uppercase tracking-wide shrink-0 transition-all ${
+                    quizType === null && currentLessonIdx === idx
+                      ? 'bg-[#002D57] text-white shadow-md'
+                      : 'bg-white border border-gray-200 text-gray-400'
+                  }`}
+                >
+                  <span className="font-display">{idx + 1}</span>
+                  <span className="max-w-[80px] truncate">{lesson.title}</span>
+                </button>
+              ))}
+              {hasFinalQuiz && (
+                <button
+                  onClick={() => { setSelectedAnswers([]); setQuizType('final'); }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl whitespace-nowrap text-[9px] font-black uppercase tracking-wide shrink-0 transition-all ${
+                    quizType === 'final' ? 'bg-[#00A3FF] text-white' : 'bg-white border border-gray-200 text-gray-400'
+                  }`}
+                >
+                  <HelpCircle size={11} /> Тест
+                </button>
+              )}
+            </div>
+          )}
+
           <AnimatePresence mode="wait">
             {quizType === null ? (
               <motion.article
@@ -657,9 +693,9 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
-                className="max-w-4xl mx-auto px-10 py-10 md:px-16 md:py-12"
+                className="max-w-4xl mx-auto px-4 py-5 sm:px-10 sm:py-10 md:px-16 md:py-12 w-full"
               >
-                <h1 className="text-4xl font-display font-black uppercase tracking-tight mb-10 leading-none">
+                <h1 className="text-2xl sm:text-4xl font-display font-black uppercase tracking-tight mb-5 sm:mb-10 leading-tight">
                   {currentLesson.title}
                 </h1>
 
@@ -672,8 +708,7 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
                     : []
                   ).filter(u => u?.trim());
                   return urls.length > 0 && !showQuiz ? urls.map((url, i) => (
-                    <div key={i} className="mb-10 rounded-[32px] overflow-hidden border-2 border-gray-100 shadow-2xl bg-gray-50"
-                         style={{ height: '78vh', minHeight: 560 }}>
+                    <div key={i} className="mb-5 sm:mb-10 overflow-hidden border-2 border-gray-100 shadow-sm sm:shadow-2xl bg-gray-50 rounded-2xl sm:rounded-[32px] h-[56vw] sm:h-[60vh] lg:h-[70vh] sm:min-h-[360px] lg:min-h-[500px]">
                       <MediaBlock rawUrl={url} />
                     </div>
                   )) : null;
@@ -683,33 +718,33 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
                   <ReactMarkdown>{currentLesson.content}</ReactMarkdown>
                 </div>
 
-                <div className="mt-16 pt-8 border-t border-gray-100 flex items-center justify-between">
+                <div className="mt-8 sm:mt-16 pt-5 sm:pt-8 border-t border-gray-100 flex flex-wrap items-center justify-between gap-3">
                   <button
                     onClick={() => setCurrentLessonIdx(i => i - 1)}
                     disabled={currentLessonIdx === 0}
-                    className="px-8 py-4 border border-gray-100 rounded-2xl font-bold disabled:opacity-30 hover:bg-gray-50 transition-all text-sm flex items-center gap-2"
+                    className="px-5 sm:px-8 py-3 sm:py-4 border border-gray-100 rounded-2xl font-bold disabled:opacity-30 hover:bg-gray-50 transition-all text-xs sm:text-sm flex items-center gap-2"
                   >
-                    <ChevronLeft size={16} /> Предыдущий
+                    <ChevronLeft size={15} /> <span className="hidden sm:inline">Предыдущий</span><span className="sm:hidden">Назад</span>
                   </button>
 
-                  <div className="flex gap-3">
+                  <div className="flex gap-2 sm:gap-3 flex-wrap justify-end">
                     <button
                       onClick={handleMarkAsDone}
                       disabled={isCompleted}
-                      className={`px-6 py-4 rounded-2xl font-bold transition-all flex items-center gap-2 text-sm ${isCompleted ? 'bg-green-50 text-green-500 border border-green-100' : 'bg-white border border-[#00A3FF] text-[#00A3FF] hover:bg-[#00A3FF]/5'}`}
+                      className={`px-4 sm:px-6 py-3 sm:py-4 rounded-2xl font-bold transition-all flex items-center gap-2 text-xs sm:text-sm ${isCompleted ? 'bg-green-50 text-green-500 border border-green-100' : 'bg-white border border-[#00A3FF] text-[#00A3FF] hover:bg-[#00A3FF]/5'}`}
                     >
-                      {isCompleted && <CheckCircle size={16} />}
-                      {isCompleted ? 'Урок изучен' : 'Завершить урок'}
+                      {isCompleted && <CheckCircle size={14} />}
+                      {isCompleted ? 'Изучен' : 'Завершить урок'}
                     </button>
 
                     <button
                       onClick={handleNext}
-                      className="px-8 py-4 bg-[#002D57] text-white rounded-2xl font-bold shadow-lg hover:bg-[#00A3FF] transition-all text-sm flex items-center gap-2"
+                      className="px-5 sm:px-8 py-3 sm:py-4 bg-[#002D57] text-white rounded-2xl font-bold shadow-lg hover:bg-[#00A3FF] transition-all text-xs sm:text-sm flex items-center gap-2"
                     >
                       {currentLessonIdx === lessons.length - 1
                         ? (hasFinalQuiz ? 'К тесту' : 'Завершить курс')
                         : 'Далее'}
-                      <ChevronRight size={16} />
+                      <ChevronRight size={15} />
                     </button>
                   </div>
                 </div>
@@ -719,13 +754,13 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
                 key="quiz"
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="max-w-2xl mx-auto px-10 py-12"
+                className="max-w-2xl mx-auto px-4 py-6 sm:px-10 sm:py-12 w-full"
               >
-                <h2 className="text-4xl font-display font-black uppercase mb-4 text-center">
+                <h2 className="text-2xl sm:text-4xl font-display font-black uppercase mb-3 sm:mb-4 text-center">
                   {quizType === 'lesson' ? `Тест: ${lessons[currentLessonIdx]?.title}` : 'Итоговый тест'}
                 </h2>
                 {quizType === 'lesson' && (
-                  <p className="text-center text-[10px] font-black uppercase tracking-widest text-gray-400 mb-10">Проверка по уроку</p>
+                  <p className="text-center text-[10px] font-black uppercase tracking-widest text-gray-400 mb-6 sm:mb-10">Проверка по уроку</p>
                 )}
                 <div className="space-y-12">
                   {activeQuestions.map((q, qIdx) => (
@@ -753,28 +788,28 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
                 <button
                   onClick={handleQuizSubmit}
                   disabled={!allAnswered}
-                  className="w-full mt-20 py-8 bg-[#002D57] text-white rounded-[40px] font-display font-black uppercase tracking-[0.2em] shadow-2xl disabled:opacity-30 hover:bg-[#00A3FF] transition-all"
+                  className="w-full mt-8 sm:mt-20 py-5 sm:py-8 bg-[#002D57] text-white rounded-[32px] sm:rounded-[40px] font-display font-black uppercase tracking-[0.15em] sm:tracking-[0.2em] shadow-xl sm:shadow-2xl disabled:opacity-30 hover:bg-[#00A3FF] transition-all text-sm sm:text-base"
                 >
-                  {quizType === 'lesson' ? 'Продолжить' : 'Завершить курс и отправить результат'}
+                  {quizType === 'lesson' ? 'Продолжить' : 'Завершить курс'}
                 </button>
               </motion.div>
             ) : simPhase === 'pending' ? (
               /* ── Transition: quiz passed, simulator required ── */
               <motion.div key="sim-pending" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-                className="max-w-xl mx-auto py-20 px-16 text-center">
-                <div className="w-28 h-28 rounded-[40px] bg-green-100 text-green-600 flex items-center justify-center mx-auto mb-10 shadow-2xl">
-                  <CheckCircle size={48} />
+                className="max-w-xl mx-auto py-10 sm:py-20 px-6 sm:px-16 text-center w-full">
+                <div className="w-20 h-20 sm:w-28 sm:h-28 rounded-[32px] sm:rounded-[40px] bg-green-100 text-green-600 flex items-center justify-center mx-auto mb-6 sm:mb-10 shadow-xl sm:shadow-2xl">
+                  <CheckCircle size={36} />
                 </div>
-                <h2 className="text-5xl font-display font-black uppercase mb-3 tracking-tighter text-[#002D57]">{score}%</h2>
-                <p className="text-xs font-black uppercase tracking-widest text-green-500 mb-6">Тест пройден!</p>
-                <p className="text-base font-bold text-gray-400 mb-12 leading-relaxed">
+                <h2 className="text-4xl sm:text-5xl font-display font-black uppercase mb-2 sm:mb-3 tracking-tighter text-[#002D57]">{score}%</h2>
+                <p className="text-xs font-black uppercase tracking-widest text-green-500 mb-4 sm:mb-6">Тест пройден!</p>
+                <p className="text-sm sm:text-base font-bold text-gray-400 mb-8 sm:mb-12 leading-relaxed">
                   Последний шаг — закрепи знания на практике в ИИ-тренажёре. Без него курс не засчитывается.
                 </p>
                 <button
                   onClick={() => setSimPhase('running')}
-                  className="w-full py-6 bg-[#002D57] text-white rounded-3xl font-display font-black uppercase tracking-widest shadow-xl hover:bg-[#00A3FF] transition-all flex items-center justify-center gap-3"
+                  className="w-full py-5 sm:py-6 bg-[#002D57] text-white rounded-3xl font-display font-black uppercase tracking-widest shadow-xl hover:bg-[#00A3FF] transition-all flex items-center justify-center gap-3"
                 >
-                  <Zap size={20} /> Начать тренажёр
+                  <Zap size={18} /> Начать тренажёр
                 </button>
               </motion.div>
 
@@ -788,7 +823,7 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
             ) : simPhase === 'done' ? (
               /* ── Final screen: quiz + sim both done ── */
               <motion.div key="sim-done" initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-                className="max-w-xl mx-auto py-16 px-16 text-center">
+                className="max-w-xl mx-auto py-8 sm:py-16 px-6 sm:px-16 text-center w-full">
                 <div className="w-28 h-28 rounded-[40px] bg-[#002D57] text-white flex items-center justify-center mx-auto mb-10 shadow-2xl">
                   <Trophy size={48} />
                 </div>
@@ -818,12 +853,12 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
                 key="result"
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
-                className="max-w-xl mx-auto py-20 text-center bg-white rounded-[64px] border border-gray-100 px-16 shadow-2xl"
+                className="max-w-xl mx-auto py-8 sm:py-20 text-center bg-white rounded-[32px] sm:rounded-[64px] border border-gray-100 px-6 sm:px-16 shadow-lg sm:shadow-2xl m-4 sm:m-auto w-auto"
               >
-                <div className={`w-32 h-32 rounded-[48px] flex items-center justify-center mx-auto mb-10 shadow-2xl ${score >= PASS_THRESHOLD ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
-                  {score >= PASS_THRESHOLD ? <Trophy size={48} /> : <X size={48} />}
+                <div className={`w-20 h-20 sm:w-32 sm:h-32 rounded-[32px] sm:rounded-[48px] flex items-center justify-center mx-auto mb-6 sm:mb-10 shadow-xl sm:shadow-2xl ${score >= PASS_THRESHOLD ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+                  {score >= PASS_THRESHOLD ? <Trophy size={36} /> : <X size={36} />}
                 </div>
-                <h2 className="text-6xl font-display font-black uppercase mb-4 tracking-tighter text-[#002D57]">{score}%</h2>
+                <h2 className="text-5xl sm:text-6xl font-display font-black uppercase mb-3 sm:mb-4 tracking-tighter text-[#002D57]">{score}%</h2>
                 <p className="text-xs font-black uppercase tracking-widest text-[#00A3FF] mb-12">
                   {score >= PASS_THRESHOLD ? 'Курс успешно зачтен' : 'Попробуйте еще раз'}
                 </p>

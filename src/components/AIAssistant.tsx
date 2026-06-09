@@ -76,21 +76,23 @@ export default function AIAssistant({ allCourses, glossary }: AIAssistantProps) 
 
   return (
     <>
-      <button 
+      {/* Toggle button — above mobile bottom nav on small screens */}
+      <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-10 right-10 w-16 h-16 bg-[#002D57] text-white rounded-[24px] shadow-2xl flex items-center justify-center hover:scale-110 transition-transform z-40 border-4 border-white"
+        className="fixed bottom-20 sm:bottom-10 right-4 sm:right-10 w-14 h-14 sm:w-16 sm:h-16 bg-[#002D57] text-white rounded-[20px] sm:rounded-[24px] shadow-2xl flex items-center justify-center hover:scale-110 active:scale-95 transition-transform z-40 border-4 border-white"
+        style={{ marginBottom: 'env(safe-area-inset-bottom, 0px)' }}
       >
-        <MessageSquare size={28} />
+        <MessageSquare size={24} />
       </button>
 
       <AnimatePresence>
         {isOpen && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: 50, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 50, scale: 0.9 }}
-            className="fixed bottom-[110px] right-10 w-[420px] h-[600px] bg-white rounded-[40px] shadow-[0_20px_50px_rgba(0,0,0,0.2)] z-50 overflow-hidden flex flex-col border border-gray-100"
-            style={{ maxHeight: 'calc(100vh - 160px)' }}
+            className="fixed bottom-0 sm:bottom-[110px] left-0 right-0 sm:left-auto sm:right-10 sm:w-[420px] bg-white sm:rounded-[40px] rounded-t-[32px] shadow-[0_-10px_40px_rgba(0,0,0,0.15)] sm:shadow-[0_20px_50px_rgba(0,0,0,0.2)] z-50 overflow-hidden flex flex-col border border-gray-100"
+            style={{ height: 'min(600px, 85dvh)', maxHeight: 'calc(100dvh - 70px)' }}
           >
             <div className="bg-[#002D57] p-8 text-white flex items-center justify-between shrink-0">
               <div className="flex items-center gap-4">

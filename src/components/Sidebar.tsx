@@ -40,7 +40,7 @@ export default function Sidebar({ user, activeTab, setActiveTab, onLogout }: Sid
   const isManager = user.role === 'manager' || user.role === 'admin';
 
   return (
-    <div className="w-16 h-full bg-[#002D57] flex flex-col items-center py-5 gap-2
+    <div className="hidden sm:flex w-16 h-full bg-[#002D57] flex-col items-center py-5 gap-2
                     fixed left-0 top-0 z-50 border-r border-[#00A3FF]/10 shadow-2xl overflow-visible">
 
       {/* Logo */}

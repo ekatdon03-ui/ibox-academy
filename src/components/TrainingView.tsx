@@ -66,32 +66,32 @@ export default function TrainingView({ courses, user, onSelectCourse, refreshTri
   const categories = ['Все тематики', ...new Set(courses.map(c => c.category).filter(Boolean))];
 
   return (
-    <div className="flex-1 overflow-y-auto p-10 bg-[#F5F7FA]">
-      <div className="max-w-7xl mx-auto space-y-16">
-        
+    <div className="flex-1 overflow-y-auto p-4 sm:p-8 md:p-10 bg-[#F5F7FA]">
+      <div className="max-w-7xl mx-auto space-y-8 sm:space-y-14">
+
         {/* Achievements Section */}
         <section>
-          <div className="flex items-center gap-3 mb-8">
-            <Trophy className="text-[#00A3FF]" size={24} />
-            <h2 className="text-2xl font-display font-black uppercase tracking-tight text-[#002D57]">Достижения</h2>
+          <div className="flex items-center gap-3 mb-4 sm:mb-8">
+            <Trophy className="text-[#00A3FF]" size={20} />
+            <h2 className="text-lg sm:text-2xl font-display font-black uppercase tracking-tight text-[#002D57]">Достижения</h2>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-             <div className="bg-white p-8 rounded-[40px] border border-gray-100 shadow-sm flex items-center gap-6">
-                <div className="w-16 h-16 bg-[#00A3FF]/10 rounded-3xl flex items-center justify-center text-[#00A3FF]">
-                   <Star size={28} />
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-6">
+             <div className="bg-white p-5 sm:p-8 rounded-[28px] sm:rounded-[40px] border border-gray-100 shadow-sm flex items-center gap-4 sm:gap-6">
+                <div className="w-11 h-11 sm:w-16 sm:h-16 bg-[#00A3FF]/10 rounded-2xl sm:rounded-3xl flex items-center justify-center text-[#00A3FF] shrink-0">
+                   <Star size={20} />
                 </div>
                 <div>
-                   <p className="text-3xl font-display font-black text-[#002D57]">{results.length}</p>
-                   <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Курсов пройдено</p>
+                   <p className="text-2xl sm:text-3xl font-display font-black text-[#002D57]">{results.length}</p>
+                   <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest text-gray-400 leading-tight">Курсов пройдено</p>
                 </div>
              </div>
-             <div className="bg-white p-8 rounded-[40px] border border-gray-100 shadow-sm flex items-center gap-6">
-                <div className="w-16 h-16 bg-green-500/10 rounded-3xl flex items-center justify-center text-green-500">
-                   <Target size={28} />
+             <div className="bg-white p-5 sm:p-8 rounded-[28px] sm:rounded-[40px] border border-gray-100 shadow-sm flex items-center gap-4 sm:gap-6">
+                <div className="w-11 h-11 sm:w-16 sm:h-16 bg-green-500/10 rounded-2xl sm:rounded-3xl flex items-center justify-center text-green-500 shrink-0">
+                   <Target size={20} />
                 </div>
                 <div>
-                   <p className="text-3xl font-display font-black text-[#002D57]">{avgScore}%</p>
-                   <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Средний балл</p>
+                   <p className="text-2xl sm:text-3xl font-display font-black text-[#002D57]">{avgScore}%</p>
+                   <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest text-gray-400 leading-tight">Средний балл</p>
                 </div>
              </div>
           </div>
@@ -100,18 +100,18 @@ export default function TrainingView({ courses, user, onSelectCourse, refreshTri
         {/* My Tasks (Assigned) */}
         {assignedCourses.length > 0 && (
           <section>
-            <div className="flex items-center gap-3 mb-8">
-              <Target className="text-[#002D57]" size={24} />
-              <h2 className="text-2xl font-display font-black uppercase tracking-tight text-[#002D57]">Назначенные курсы</h2>
+            <div className="flex items-center gap-3 mb-4 sm:mb-8">
+              <Target className="text-[#002D57]" size={20} />
+              <h2 className="text-lg sm:text-2xl font-display font-black uppercase tracking-tight text-[#002D57]">Назначенные курсы</h2>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-8">
               {assignedCourses.map((course, idx) => (
-                <CourseCard 
-                  key={course.id} 
-                  course={course} 
-                  idx={idx} 
-                  onSelect={onSelectCourse} 
-                  isTask 
+                <CourseCard
+                  key={course.id}
+                  course={course}
+                  idx={idx}
+                  onSelect={onSelectCourse}
+                  isTask
                   progress={progressMap[course.id]}
                 />
               ))}
@@ -121,25 +121,25 @@ export default function TrainingView({ courses, user, onSelectCourse, refreshTri
 
         {/* All Courses */}
         <section>
-          <div className="flex items-center justify-between mb-8">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 sm:mb-8">
             <div className="flex items-center gap-3">
-              <Play className="text-[#002D57]" size={24} />
-              <h2 className="text-2xl font-display font-black uppercase tracking-tight text-[#002D57]">Каталог курсов</h2>
+              <Play className="text-[#002D57]" size={20} />
+              <h2 className="text-lg sm:text-2xl font-display font-black uppercase tracking-tight text-[#002D57]">Каталог курсов</h2>
             </div>
-            
-            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide max-w-lg">
+
+            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
                {categories.map(cat => (
-                  <button 
+                  <button
                    key={cat}
                    onClick={() => setSelectedCategory(cat)}
-                   className={`px-4 py-2 rounded-xl text-[8px] font-black uppercase tracking-widest transition-all whitespace-nowrap active:scale-95 ${cat === selectedCategory ? 'bg-[#00A3FF] text-white shadow-[0_10px_20px_-10px_rgba(0,163,255,0.4)]' : 'bg-white text-gray-400 hover:text-[#002D57] border border-gray-100'}`}
+                   className={`px-3 sm:px-4 py-2 rounded-xl text-[8px] font-black uppercase tracking-widest transition-all whitespace-nowrap active:scale-95 ${cat === selectedCategory ? 'bg-[#00A3FF] text-white shadow-[0_10px_20px_-10px_rgba(0,163,255,0.4)]' : 'bg-white text-gray-400 hover:text-[#002D57] border border-gray-100'}`}
                   >
                    {cat}
                  </button>
                ))}
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-8">
             {otherCourses.map((course, idx) => (
               <CourseCard 
                 key={course.id} 
@@ -172,7 +172,7 @@ function CourseCard({ course, idx, onSelect, isTask, progress }: { course: Cours
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: idx * 0.1 }}
-      className={`group bg-white p-6 rounded-[48px] flex flex-col border border-gray-100 shadow-sm hover:shadow-2xl transition-all cursor-pointer relative overflow-hidden ${isTask ? 'ring-2 ring-red-500/20' : ''}`}
+      className={`group bg-white p-4 sm:p-6 rounded-[32px] sm:rounded-[48px] flex flex-col border border-gray-100 shadow-sm hover:shadow-2xl transition-all cursor-pointer relative overflow-hidden ${isTask ? 'ring-2 ring-red-500/20' : ''}`}
       onClick={() => onSelect(course)}
     >
       {isTask && (
@@ -180,7 +180,7 @@ function CourseCard({ course, idx, onSelect, isTask, progress }: { course: Cours
            <span className="bg-[#002D57] text-white px-4 py-2 rounded-xl text-[8px] font-black uppercase tracking-widest shadow-lg">Назначено</span>
         </div>
       )}
-      <div className="h-48 bg-gray-50 rounded-[32px] mb-8 relative overflow-hidden">
+      <div className="h-36 sm:h-48 bg-gray-50 rounded-[24px] sm:rounded-[32px] mb-4 sm:mb-8 relative overflow-hidden">
         <img 
           src={course.thumbnail} 
           alt={course.title} 
@@ -194,28 +194,28 @@ function CourseCard({ course, idx, onSelect, isTask, progress }: { course: Cours
         </div>
       </div>
       
-      <div className="flex-1 flex flex-col px-4">
-        <h3 className="text-2xl font-display font-black uppercase mb-3 leading-tight group-hover:text-[#00A3FF] transition-colors">{course.title}</h3>
-        <p className="text-gray-400 text-xs font-semibold mb-8 line-clamp-2 leading-relaxed">
+      <div className="flex-1 flex flex-col px-1 sm:px-4">
+        <h3 className="text-lg sm:text-2xl font-display font-black uppercase mb-2 sm:mb-3 leading-tight group-hover:text-[#00A3FF] transition-colors">{course.title}</h3>
+        <p className="text-gray-400 text-[11px] sm:text-xs font-semibold mb-4 sm:mb-8 line-clamp-2 leading-relaxed">
           {course.description}
         </p>
-        
+
         <div className="mt-auto">
-          <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest mb-3">
+          <div className="flex items-center justify-between text-[9px] sm:text-[10px] font-black uppercase tracking-widest mb-2 sm:mb-3">
             <span className="text-gray-300">Статус</span>
             <span className={isCompleted ? 'text-green-500' : (progress?.status === 'in-progress' ? 'text-[#00A3FF]' : 'text-gray-400')}>
               {isCompleted ? 'Завершено' : (progress?.status === 'in-progress' ? `В процессе ${progressValue}%` : 'Не начато')}
             </span>
           </div>
-          <div className="w-full h-1.5 bg-gray-50 rounded-full overflow-hidden mb-8">
-            <div 
-              className={`h-full rounded-full transition-all duration-1000 ${isCompleted ? 'bg-green-500' : 'bg-[#00A3FF]'}`} 
+          <div className="w-full h-1.5 bg-gray-50 rounded-full overflow-hidden mb-4 sm:mb-8">
+            <div
+              className={`h-full rounded-full transition-all duration-1000 ${isCompleted ? 'bg-green-500' : 'bg-[#00A3FF]'}`}
               style={{ width: `${progressValue}%` }}
             />
           </div>
-          <button className="w-full py-5 bg-[#F5F7FA] text-[#002D57] font-black uppercase text-[10px] tracking-widest rounded-3xl group-hover:bg-[#002D57] group-hover:text-white transition-all flex items-center justify-center gap-3">
-            <Play size={14} fill="currentColor" />
-            {progressValue > 0 ? 'Продолжить обучение' : 'Начать обучение'}
+          <button className="w-full py-3.5 sm:py-5 bg-[#F5F7FA] text-[#002D57] font-black uppercase text-[9px] sm:text-[10px] tracking-widest rounded-2xl sm:rounded-3xl group-hover:bg-[#002D57] group-hover:text-white transition-all flex items-center justify-center gap-2 sm:gap-3">
+            <Play size={12} fill="currentColor" />
+            {progressValue > 0 ? 'Продолжить' : 'Начать'}
           </button>
         </div>
       </div>

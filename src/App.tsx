@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { GraduationCap, Terminal, Book, User, BarChart3, LayoutDashboard } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import Navbar from './components/Navbar';
 import TrainingView from './components/TrainingView';
@@ -55,6 +56,53 @@ async function doBitrixAuth(): Promise<void> {
     console.warn('Bitrix auth error, falling back to anonymous:', e);
     try { await signInAnonymously(auth); } catch (_) {}
   }
+}
+
+// ─── Mobile bottom navigation (sm:hidden) ────────────────────────────────────
+function MobileBottomNav({ activeTab, setActiveTab, user }: {
+  activeTab: string;
+  setActiveTab: (tab: string) => void;
+  user: UserProfile;
+}) {
+  const isAdmin   = user.role === 'admin';
+  const isManager = user.role === 'manager' || user.role === 'admin';
+
+  const items = [
+    { id: 'training',  label: 'Обучение',  Icon: GraduationCap },
+    { id: 'simulator', label: 'Тренажер',  Icon: Terminal },
+    { id: 'glossary',  label: 'Глоссарий', Icon: Book },
+    { id: 'profile',   label: 'Профиль',   Icon: User },
+    ...(isManager ? [{ id: 'analytics', label: 'Аналитика', Icon: BarChart3 }] : []),
+    ...(isAdmin   ? [{ id: 'admin',     label: 'Админ',     Icon: LayoutDashboard }] : []),
+  ];
+
+  return (
+    <nav
+      className="sm:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-100 shadow-[0_-4px_20px_rgba(0,0,0,0.06)]"
+      style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+    >
+      <div className="flex items-center">
+        {items.map(({ id, label, Icon }) => {
+          const active = activeTab === id;
+          return (
+            <button
+              key={id}
+              onClick={() => setActiveTab(id)}
+              className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 transition-colors min-w-0 ${
+                active ? 'text-[#00A3FF]' : 'text-gray-400 active:text-[#002D57]'
+              }`}
+            >
+              <Icon size={20} strokeWidth={active ? 2.5 : 1.8} />
+              <span className="text-[8px] font-black uppercase tracking-wider truncate w-full text-center leading-tight">
+                {label}
+              </span>
+              {active && <span className="w-1 h-1 rounded-full bg-[#00A3FF] mt-0.5" />}
+            </button>
+          );
+        })}
+      </div>
+    </nav>
+  );
 }
 
 export default function App() {
@@ -338,12 +386,15 @@ export default function App() {
   };
 
   return (
-    <div className="h-screen w-full flex bg-ibox-bg relative overflow-hidden">
+    <div className="h-[100dvh] w-full flex bg-ibox-bg relative overflow-hidden">
       <Sidebar user={user} activeTab={activeTab} setActiveTab={setActiveTab} onLogout={handleLogout} />
-      <div className="flex-1 flex flex-col pl-16">
+      <div className="flex-1 flex flex-col sm:pl-16 min-w-0">
         <Navbar user={user} courses={courses} onSelectCourse={setSelectedCourse} onNavigate={setActiveTab} />
-        <main className="flex-1 mt-20 overflow-y-auto">{renderView()}</main>
+        {/* pb-16 leaves room for mobile bottom nav */}
+        <main className="flex-1 mt-14 sm:mt-20 overflow-y-auto pb-16 sm:pb-0">{renderView()}</main>
       </div>
+      {/* Mobile bottom navigation */}
+      <MobileBottomNav activeTab={activeTab} setActiveTab={setActiveTab} user={user} />
       <AIAssistant allCourses={courses} glossary={glossary} />
       {selectedCourse && (
         <CoursePlayer course={selectedCourse} user={user} onClose={handleClosePlayer} />
