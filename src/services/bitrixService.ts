@@ -222,10 +222,11 @@ class BitrixService {
       fields: {
         TITLE: `Пройти курс: ${courseTitle}`,
         DESCRIPTION:
-          `Вам назначен обязательный учебный курс в Академии iBOX.\n\n` +
+          `Вам назначен обязательный учебный курс в Академии iBOX.\r\n\r\n` +
           `Курс: ${courseTitle}` +
-          (courseDescription ? `\n\n${courseDescription}` : '') +
-          `\n\nДля прохождения курса откройте приложение iBOX Academy:\nhttps://portal.i-box.company/marketplace/app/498/`,
+          (courseDescription ? `\r\n\r\n${courseDescription}` : '') +
+          `\r\n\r\nДля прохождения курса откройте приложение iBOX Academy:\r\n` +
+          `[URL=https://portal.i-box.company/marketplace/app/498/]https://portal.i-box.company/marketplace/app/498/[/URL]`,
         RESPONSIBLE_ID: parseInt(bitrixUserId, 10),
         DEADLINE: deadline,
         ALLOW_CHANGE_DEADLINE: 'Y',
