@@ -377,6 +377,241 @@ async function startServer() {
   });
 
   // ─────────────────────────────────────────────────────────────────────
+  // EXTRACT MEDIA KNOWLEDGE — server-side AI extraction for videos/audio/PDF
+  // Uses Gemini Files API for large files and video/audio (speech transcription)
+  // POST /api/extract-media-knowledge  { url: string }
+  // ─────────────────────────────────────────────────────────────────────
+
+  /** Resolve share links (Yandex Disk, Google Drive) to direct download URLs */
+  async function resolveDownloadUrl(raw: string): Promise<string> {
+    let url = raw;
+    if (url.includes('disk.yandex.') || url.includes('yadi.sk')) {
+      try {
+        const r = await axios.get(
+          `https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=${encodeURIComponent(url)}`,
+          { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 8000 }
+        );
+        if (r.data?.href) url = r.data.href;
+      } catch {}
+    } else if (url.includes('drive.google.com/file/d/')) {
+      const id = url.split('/d/')[1]?.split('/')[0];
+      if (id) url = `https://drive.google.com/uc?export=download&id=${id}`;
+    } else if (url.includes('drive.google.com/open?id=')) {
+      const id = url.split('id=')[1]?.split('&')[0];
+      if (id) url = `https://drive.google.com/uc?export=download&id=${id}`;
+    } else if (url.includes('docs.google.com/presentation/d/')) {
+      const id = url.split('/d/')[1]?.split('/')[0];
+      if (id) url = `https://docs.google.com/presentation/d/${id}/export/pdf`;
+    } else if (url.includes('docs.google.com/document/d/')) {
+      const id = url.split('/d/')[1]?.split('/')[0];
+      if (id) url = `https://docs.google.com/document/d/${id}/export?format=pdf`;
+    }
+    return url;
+  }
+
+  /** Try to fetch YouTube auto-captions via timedtext API */
+  async function getYouTubeTranscript(videoId: string): Promise<string | null> {
+    for (const lang of ['ru', 'uk', 'en']) {
+      try {
+        const r = await axios.get(
+          `https://www.youtube.com/api/timedtext?v=${videoId}&lang=${lang}&fmt=json3`,
+          { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 10000 }
+        );
+        if (r.data?.events && Array.isArray(r.data.events)) {
+          const text = r.data.events
+            .filter((e: any) => e.segs)
+            .map((e: any) => e.segs.map((s: any) => s.utf8 ?? '').join(''))
+            .filter(Boolean)
+            .join(' ')
+            .trim();
+          if (text.length > 50) return `[Транскрипция YouTube (${lang})]:\n\n${text}`;
+        }
+      } catch {}
+    }
+    return null;
+  }
+
+  /** Upload buffer to Gemini Files API (resumable) and return file URI */
+  async function uploadToFilesApi(buf: Buffer, mimeType: string, apiKey: string): Promise<{ uri: string; name: string }> {
+    // Step 1: Initiate resumable upload
+    const initRes = await axios.post(
+      `https://generativelanguage.googleapis.com/upload/v1beta/files?uploadType=resumable&key=${apiKey}`,
+      { file: { displayName: 'ibox_media' } },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Goog-Upload-Command': 'start',
+          'X-Goog-Upload-Header-Content-Type': mimeType,
+          'X-Goog-Upload-Header-Content-Length': String(buf.length),
+        },
+        timeout: 20000,
+      }
+    );
+    const uploadUrl = initRes.headers['x-goog-upload-url'] as string;
+    if (!uploadUrl) throw new Error('Gemini Files API: no upload URL in response');
+
+    // Step 2: Upload + finalize
+    const uploadRes = await axios.put(uploadUrl, buf, {
+      headers: {
+        'Content-Type': mimeType,
+        'X-Goog-Upload-Command': 'upload, finalize',
+        'X-Goog-Upload-Offset': '0',
+        'Content-Length': String(buf.length),
+      },
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+      timeout: 600000,
+    });
+    const file = uploadRes.data?.file;
+    if (!file?.uri) throw new Error('Gemini Files API: upload did not return file URI');
+
+    // Step 3: Poll until ACTIVE
+    let state: string = file.state ?? 'PROCESSING';
+    let retries = 0;
+    while (state === 'PROCESSING' && retries < 60) {
+      await new Promise(r => setTimeout(r, 3000));
+      try {
+        const poll = await axios.get(
+          `https://generativelanguage.googleapis.com/v1beta/${file.name}?key=${apiKey}`,
+          { timeout: 10000 }
+        );
+        state = poll.data?.state ?? 'PROCESSING';
+      } catch {}
+      retries++;
+    }
+    if (state !== 'ACTIVE') throw new Error(`Gemini Files API: file stuck in state ${state} after ${retries * 3}s`);
+    return { uri: file.uri as string, name: file.name as string };
+  }
+
+  const EXTRACT_PROMPT = `Ты — точный конвертер материалов в текст. Задача: извлечь ВЕСЬ контент из этого файла без пропусков.
+
+ОБЯЗАТЕЛЬНО:
+- Для видео/аудио: транскрибируй речь полностью и дословно. Если говорят несколько людей — различай их ("Спикер 1:", "Спикер 2:").
+- Для презентаций/PDF: обработай КАЖДЫЙ слайд/страницу — не пропускай ни одного.
+- Сохраняй исходную структуру: заголовки, списки, таблицы, цифры, факты.
+- Нумеруй разделы: "## Слайд 1", "## Часть 2" и т.д.
+- Не сокращай и не перефразируй — переноси текст/речь как есть.
+- Не добавляй комментарии от себя.`;
+
+  app.post('/api/extract-media-knowledge', async (req: any, res: any) => {
+    const GEMINI_KEY = process.env.GEMINI_API_KEY;
+    if (!GEMINI_KEY) return res.status(503).json({ error: 'GEMINI_API_KEY not configured on server' });
+
+    const { url: rawUrl } = req.body as { url?: string };
+    if (!rawUrl) return res.status(400).json({ error: 'url required' });
+
+    try {
+      // ── YouTube: try captions API first ──
+      const ytMatch = rawUrl.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]+)/);
+      if (ytMatch) {
+        const transcript = await getYouTubeTranscript(ytMatch[1]);
+        if (transcript) return res.json({ text: transcript });
+        return res.status(422).json({
+          error: 'Субтитры для этого YouTube-видео недоступны. Включите субтитры на видео или используйте прямую ссылку на файл.',
+        });
+      }
+
+      // ── Resolve share links ──
+      const downloadUrl = await resolveDownloadUrl(rawUrl);
+
+      // ── Download file (large timeout for videos) ──
+      let fileBuf: Buffer;
+      let mimeType: string;
+      try {
+        const dlRes = await axios.get(downloadUrl, {
+          responseType: 'arraybuffer',
+          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ibox-academy/1.0)' },
+          timeout: 300000,                    // 5 min
+          maxContentLength: 500 * 1024 * 1024, // 500 MB cap
+        });
+        fileBuf = Buffer.from(dlRes.data);
+        mimeType = String(dlRes.headers['content-type'] || '').split(';')[0].trim() || 'application/octet-stream';
+      } catch (e: any) {
+        return res.status(502).json({ error: `Не удалось скачать файл: ${e.message}` });
+      }
+
+      if (mimeType.includes('text/html')) {
+        return res.status(422).json({
+          error: 'Получена HTML-страница вместо файла. Убедитесь, что доступ открыт «Всем по ссылке».',
+        });
+      }
+
+      // Normalise unknown binary types by extension
+      if (mimeType === 'application/octet-stream' || !mimeType) {
+        const ext = rawUrl.split('?')[0].split('.').pop()?.toLowerCase() ?? '';
+        const extMap: Record<string, string> = {
+          mp4: 'video/mp4', webm: 'video/webm', avi: 'video/x-msvideo', mov: 'video/quicktime',
+          mkv: 'video/x-matroska', mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg',
+          m4a: 'audio/mp4', aac: 'audio/aac', pdf: 'application/pdf',
+          pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        };
+        if (extMap[ext]) mimeType = extMap[ext];
+      }
+
+      const isMedia = mimeType.startsWith('video/') || mimeType.startsWith('audio/');
+      const isLarge = fileBuf.length > 15 * 1024 * 1024; // > 15 MB → Files API
+
+      let text: string;
+
+      if (isMedia || isLarge) {
+        // ── Gemini Files API (handles video/audio + large files) ──
+        console.log(`[extract-media] Files API upload: ${(fileBuf.length / 1024 / 1024).toFixed(1)} MB, ${mimeType}`);
+        const { uri: fileUri, name: fileName } = await uploadToFilesApi(fileBuf, mimeType, GEMINI_KEY);
+
+        const genRes = await axios.post(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
+          {
+            contents: [{
+              role: 'user',
+              parts: [
+                { fileData: { mimeType, fileUri } },
+                { text: EXTRACT_PROMPT },
+              ],
+            }],
+            generationConfig: { maxOutputTokens: 65536, temperature: 0.1 },
+          },
+          { headers: { 'Content-Type': 'application/json' }, timeout: 300000 }
+        );
+        text = genRes.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+
+        // Cleanup uploaded file (best-effort)
+        axios.delete(`https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${GEMINI_KEY}`, { timeout: 10000 }).catch(() => {});
+      } else {
+        // ── Inline base64 (small PDFs, images) ──
+        console.log(`[extract-media] Inline: ${(fileBuf.length / 1024).toFixed(0)} KB, ${mimeType}`);
+        const genRes = await axios.post(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
+          {
+            contents: [{
+              role: 'user',
+              parts: [
+                { text: EXTRACT_PROMPT },
+                { inlineData: { data: fileBuf.toString('base64'), mimeType } },
+              ],
+            }],
+            generationConfig: { maxOutputTokens: 65536, temperature: 0.1 },
+          },
+          { headers: { 'Content-Type': 'application/json' }, timeout: 180000 }
+        );
+        text = genRes.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+      }
+
+      if (!text) return res.status(422).json({ error: 'ИИ не смог извлечь контент из файла.' });
+
+      // Strip NotebookLM-style footer if present
+      const tail = text.slice(-600);
+      const footerIdx = tail.search(/\n[-–—=*]{3,}\s*\n[\s\S]{0,300}NotebookLM/i);
+      const cleaned = footerIdx !== -1 ? text.slice(0, text.length - 600 + footerIdx).trim() : text.trim();
+
+      res.json({ text: cleaned });
+    } catch (e: any) {
+      console.error('[extract-media-knowledge]', e.message);
+      res.status(500).json({ error: e.message || 'Extraction failed' });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────
   // BITRIX24 HANDLER ENTRY POINT (POST /)
   // ─────────────────────────────────────────────────────────────────────
   app.post('/', (req, res) => {

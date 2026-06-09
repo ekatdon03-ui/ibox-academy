@@ -1256,60 +1256,63 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
   const handleExtractKnowledge = async (idx: number) => {
     if (extractingIdx !== null) return;
     const lesson = lessons[idx];
-    // Use first URL from fileUrls, or legacy fileUrl
-    const firstUrl = lesson.fileUrls?.find(u => u?.trim()) || lesson.fileUrl;
-    if (!firstUrl) {
+    // Collect ALL URLs for this lesson
+    const urls = (lesson.fileUrls?.filter(u => u?.trim()) || []);
+    if (lesson.fileUrl?.trim() && !urls.includes(lesson.fileUrl)) urls.push(lesson.fileUrl);
+    if (urls.length === 0) {
       showFormToast("Сначала загрузите файл или укажите ссылку на него.", true);
       return;
     }
 
     setExtractingIdx(idx);
-    try {
-      let base64Content = '';
-      let mimeTypeContent = '';
+    const results: string[] = [];
 
-      if (firstUrl.startsWith('data:')) {
-        const parts = firstUrl.split(',');
-        base64Content = parts[1];
-        mimeTypeContent = parts[0].split(':')[1].split(';')[0];
-      } else {
-        try {
-          const response = await axios.post('/api/proxy-fetch', { url: firstUrl });
-          base64Content = response.data.base64;
-          mimeTypeContent = response.data.contentType || 'application/octet-stream';
-        } catch (fetchErr: any) {
-          console.error("Proxy fetch failed", fetchErr);
-          showFormToast("Не удалось загрузить файл по ссылке. Убедитесь, что доступ открыт «Всем, у кого есть ссылка».", true);
-          setExtractingIdx(null);
-          return;
+    for (let i = 0; i < urls.length; i++) {
+      const url = urls[i];
+      if (urls.length > 1) showFormToast(`Обработка файла ${i + 1} из ${urls.length}…`);
+
+      try {
+        let extracted = '';
+
+        if (url.startsWith('data:')) {
+          // Inline data URI — send directly to AI (existing path)
+          const parts = url.split(',');
+          const b64 = parts[1];
+          const mime = parts[0].split(':')[1].split(';')[0];
+          extracted = await aiService.extractContentFromMedia(b64, mime) ?? '';
+        } else {
+          // Remote URL — use server-side extraction (handles video, audio, large files)
+          const resp = await axios.post('/api/extract-media-knowledge', { url }, { timeout: 700000 });
+          extracted = resp.data?.text ?? '';
         }
-      }
 
-      // Handle HTML pages from Drive (common error)
-      if (mimeTypeContent.toLowerCase().includes('text/html')) {
-        showFormToast("Получена HTML-страница вместо файла. В Google Drive: Файл → Поделиться → Опубликовать в интернете.", true);
-        setExtractingIdx(null);
-        return;
+        if (extracted) results.push(extracted);
+      } catch (err: any) {
+        const msg = err.response?.data?.error || err.message || 'Ошибка';
+        showFormToast(`Файл ${i + 1}: ${msg}`, true);
       }
-
-      const extracted = await aiService.extractContentFromMedia(base64Content, mimeTypeContent);
-      
-      if (extracted) {
-        setLessons(prev => {
-          const n = [...prev];
-          n[idx] = { ...n[idx], aiKnowledge: (n[idx].aiKnowledge || '') + (n[idx].aiKnowledge ? "\n\n" : "") + extracted };
-          return n;
-        });
-        showFormToast("ИИ изучил файл и сохранил данные в базу знаний урока.");
-      } else {
-        showFormToast("ИИ не смог извлечь информацию. Попробуйте загрузить PDF напрямую.", true);
-      }
-    } catch (e: any) {
-      console.error("Deep extraction failed", e);
-      showFormToast("Ошибка при анализе файла: " + (e.message || "Неизвестная ошибка"), true);
-    } finally {
-      setExtractingIdx(null);
     }
+
+    if (results.length > 0) {
+      const combined = results.join('\n\n---\n\n');
+      setLessons(prev => {
+        const n = [...prev];
+        n[idx] = {
+          ...n[idx],
+          aiKnowledge: (n[idx].aiKnowledge ? n[idx].aiKnowledge + '\n\n' : '') + combined,
+        };
+        return n;
+      });
+      showFormToast(
+        urls.length > 1
+          ? `ИИ обработал ${results.length} из ${urls.length} файлов и сохранил знания.`
+          : 'ИИ изучил файл и сохранил данные в базу знаний урока.'
+      );
+    } else {
+      showFormToast('ИИ не смог извлечь информацию ни из одного файла.', true);
+    }
+
+    setExtractingIdx(null);
   };
 
   const handleSaveManual = async () => {
