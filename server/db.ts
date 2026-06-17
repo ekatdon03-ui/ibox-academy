@@ -26,24 +26,46 @@ function buildSsl(): any {
 export function getPool(): Pool {
   if (pool) return pool;
   const connectionString = process.env.DATABASE_URL;
+  // keepAlive + a connect timeout so a bad route fails fast and we can retry
+  // (Render egress IPs reach Timeweb intermittently — retries catch a good window).
+  const common = {
+    ssl: buildSsl(),
+    max: 10,
+    keepAlive: true,
+    connectionTimeoutMillis: 10000,
+    idleTimeoutMillis: 30000,
+  };
   pool = connectionString
-    ? new Pool({ connectionString, ssl: buildSsl(), max: 10 })
+    ? new Pool({ connectionString, ...common })
     : new Pool({
         host: process.env.PGHOST,
         port: process.env.PGPORT ? parseInt(process.env.PGPORT) : 5432,
         database: process.env.PGDATABASE,
         user: process.env.PGUSER,
         password: process.env.PGPASSWORD,
-        ssl: buildSsl(),
-        max: 10,
+        ...common,
       });
   pool.on('error', (err) => console.error('[pg] idle client error:', err.message));
   return pool;
 }
 
-export async function query<T = any>(text: string, params?: any[]): Promise<{ rows: T[] }> {
+const RETRYABLE = /ETIMEDOUT|ECONNREFUSED|ENOTFOUND|ECONNRESET|EHOSTUNREACH|ENETUNREACH|Connection terminated|timeout expired/i;
+
+// Query with automatic retries on connection-level errors. Each retry asks the
+// pool for a fresh connection, which may egress via a different (working) IP.
+export async function query<T = any>(text: string, params?: any[], attempts = 4): Promise<{ rows: T[] }> {
   const p = getPool();
-  return p.query(text, params);
+  let lastErr: any;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await p.query(text, params);
+    } catch (e: any) {
+      lastErr = e;
+      if (!RETRYABLE.test(e.message || '')) throw e;
+      await new Promise(r => setTimeout(r, 600 * (i + 1))); // 0.6s, 1.2s, 1.8s
+    }
+  }
+  throw lastErr;
 }
 
 export function dbConfigured(): boolean {
@@ -54,7 +76,7 @@ let schemaReady = false;
 export async function initSchema(): Promise<void> {
   if (schemaReady || !dbConfigured()) return;
   try {
-    await getPool().query(SCHEMA_SQL);
+    await query(SCHEMA_SQL);
     schemaReady = true;
     console.log('[pg] schema ready');
   } catch (e: any) {
