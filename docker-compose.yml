@@ -1,0 +1,32 @@
+# iBOX Academy on a Timeweb VPS: app (Node) + Caddy (auto-HTTPS reverse proxy).
+# Usage on the server:
+#   1) create .env (see .env.example) and firebase-sa.json
+#   2) docker compose up -d --build
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    expose:
+      - "3000"
+    volumes:
+      # Firebase service-account key (only needed for the one-time migration)
+      - ./firebase-sa.json:/app/firebase-sa.json:ro
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  caddy_data:
+  caddy_config:

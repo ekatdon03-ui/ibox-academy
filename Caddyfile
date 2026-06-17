@@ -1,0 +1,5 @@
+# Auto-HTTPS via Let's Encrypt for the domain in APP_DOMAIN (.env).
+# Proxies all traffic to the Node app on port 3000.
+{$APP_DOMAIN} {
+	reverse_proxy app:3000
+}

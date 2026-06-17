@@ -17,9 +17,14 @@ function getAdmin() {
   if (firebaseAdmin) return firebaseAdmin;
   try {
     const adminModule = require('firebase-admin');
-    // Accept the service account as raw JSON OR base64-encoded JSON (either env var).
-    const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
-    if (!raw) {
+    // Service account from a file path, raw JSON, or base64-encoded JSON.
+    let raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || process.env.FIREBASE_SERVICE_ACCOUNT_BASE64 || '';
+    const file = process.env.FIREBASE_SERVICE_ACCOUNT_FILE;
+    if (file) {
+      try { raw = require('fs').readFileSync(file, 'utf-8'); }
+      catch (e: any) { console.warn('Firebase SA file read failed:', e.message); }
+    }
+    if (!raw || !raw.trim()) {
       console.warn('⚠️  FIREBASE_SERVICE_ACCOUNT_* not set — Bitrix auto-login / migration disabled');
       return null;
     }
