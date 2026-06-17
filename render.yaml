@@ -19,10 +19,22 @@ services:
       - key: JWT_SECRET
         generateValue: true   # Render сгенерирует длинный секрет автоматически
       # ── PostgreSQL (Timeweb) — заполнить в Dashboard ──
-      - key: DATABASE_URL
-        sync: false   # postgres://user:pass@host:5432/dbname  (или используй PGHOST/PGPORT/...)
+      # Раздельные переменные (без URL-кодирования пароля со спецсимволами)
+      - key: PGHOST
+        sync: false
+      - key: PGPORT
+        value: 5432
+      - key: PGDATABASE
+        sync: false
+      - key: PGUSER
+        sync: false
+      - key: PGPASSWORD
+        sync: false
       - key: DATABASE_CA_CERT
-        sync: false   # содержимое .crt сертификата Timeweb (для SSL)
+        sync: false   # содержимое .crt сертификата Timeweb (verify-full SSL)
+      # ── Разовая миграция данных из Firebase ──
+      - key: MIGRATION_KEY
+        sync: false   # секрет для запуска /api/migrate-firebase, удалить после миграции
       # ── S3-хранилище (Timeweb) — заполнить в Dashboard ──
       - key: S3_ENDPOINT
         sync: false   # напр. https://s3.twcstorage.ru

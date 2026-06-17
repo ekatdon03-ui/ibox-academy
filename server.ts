@@ -261,7 +261,18 @@ async function startServer() {
     }
   }
 
-  app.post('/api/migrate-firebase', requireAdmin, wrap(async (_req, res) => {
+  // Guard: allow an admin JWT OR a matching one-time MIGRATION_KEY (so the
+  // migration can be triggered from a browser URL once, then the key removed).
+  const migrateGuard = (req: any, res: any, next: any) => {
+    const key = req.query?.key || req.body?.key;
+    if (process.env.MIGRATION_KEY && key && key === process.env.MIGRATION_KEY) return next();
+    const h = req.headers.authorization;
+    const claims = h?.startsWith('Bearer ') ? verifyToken(h.slice(7)) : null;
+    if (isAdminClaims(claims)) return next();
+    return res.status(403).json({ error: 'forbidden — нужен ключ миграции или админ-токен' });
+  };
+
+  app.all('/api/migrate-firebase', migrateGuard, wrap(async (_req, res) => {
     const fdb = getAdminDb();
     if (!fdb) return res.status(503).json({ error: 'Firebase Admin/Firestore not configured (FIREBASE_SERVICE_ACCOUNT_BASE64 missing)' });
     if (!dbConfigured()) return res.status(503).json({ error: 'PostgreSQL not configured' });
