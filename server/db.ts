@@ -4,37 +4,64 @@
 // Connection is configured via env vars (set on Render):
 //   DATABASE_URL                  full connection string (preferred), OR
 //   PGHOST / PGPORT / PGDATABASE / PGUSER / PGPASSWORD
-//   DATABASE_CA_CERT              CA certificate contents (Timeweb .crt), optional
+//   DATABASE_CA_CERT              CA certificate contents (optional — auto-fetched if absent)
 //   DATABASE_SSL=disable          to turn SSL off (not recommended)
 // ─────────────────────────────────────────────────────────────────────────────
 import { Pool } from 'pg';
+import https from 'https';
 import { SCHEMA_SQL } from './schema';
+
+// Fetch a URL and return its text body. Used once for the CA cert.
+function fetchText(url: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    https.get(url, (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (c: Buffer) => chunks.push(c));
+      res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      res.on('error', reject);
+    }).on('error', reject);
+  });
+}
+
+let resolvedSsl: any = undefined; // undefined = not yet resolved
+
+async function getSsl(): Promise<any> {
+  if (resolvedSsl !== undefined) return resolvedSsl;
+  if (process.env.DATABASE_SSL === 'disable') {
+    resolvedSsl = false;
+    return resolvedSsl;
+  }
+  const envCa = process.env.DATABASE_CA_CERT;
+  if (envCa && envCa.trim()) {
+    resolvedSsl = { ca: envCa.replace(/\\n/g, '\n'), rejectUnauthorized: true };
+    console.log('[pg] SSL: using DATABASE_CA_CERT from env');
+    return resolvedSsl;
+  }
+  // Auto-fetch Timeweb CA cert so verify-full works without manual setup
+  try {
+    const cert = await fetchText('https://st.timeweb.com/cloud-static/ca.crt');
+    resolvedSsl = { ca: cert, rejectUnauthorized: true };
+    console.log('[pg] SSL: fetched Timeweb CA cert from CDN (verify-full)');
+  } catch (err: any) {
+    console.warn('[pg] SSL: CA cert fetch failed, falling back to no-verify:', err.message);
+    resolvedSsl = { rejectUnauthorized: false };
+  }
+  return resolvedSsl;
+}
 
 let pool: Pool | null = null;
 
-function buildSsl(): any {
-  if (process.env.DATABASE_SSL === 'disable') return false;
-  const ca = process.env.DATABASE_CA_CERT;
-  if (ca && ca.trim()) {
-    // Proper CA verification when Timeweb cert is provided
-    return { ca: ca.replace(/\\n/g, '\n'), rejectUnauthorized: true };
-  }
-  // Timeweb requires SSL; without a CA we still connect but skip strict verify
-  return { rejectUnauthorized: false };
-}
-
-export function getPool(): Pool {
+async function getPool(): Promise<Pool> {
   if (pool) return pool;
-  const connectionString = process.env.DATABASE_URL;
-  // keepAlive + a connect timeout so a bad route fails fast and we can retry
-  // (Render egress IPs reach Timeweb intermittently — retries catch a good window).
+  const ssl = await getSsl();
   const common = {
-    ssl: buildSsl(),
+    ssl,
     max: 10,
     keepAlive: true,
     connectionTimeoutMillis: 10000,
     idleTimeoutMillis: 30000,
   };
+  const connectionString = process.env.DATABASE_URL;
   pool = connectionString
     ? new Pool({ connectionString, ...common })
     : new Pool({
@@ -49,12 +76,15 @@ export function getPool(): Pool {
   return pool;
 }
 
+export function dbConfigured(): boolean {
+  return !!(process.env.DATABASE_URL || process.env.PGHOST);
+}
+
 const RETRYABLE = /ETIMEDOUT|ECONNREFUSED|ENOTFOUND|ECONNRESET|EHOSTUNREACH|ENETUNREACH|Connection terminated|timeout expired/i;
 
-// Query with automatic retries on connection-level errors. Each retry asks the
-// pool for a fresh connection, which may egress via a different (working) IP.
+// Query with automatic retries on connection-level errors.
 export async function query<T = any>(text: string, params?: any[], attempts = 4): Promise<{ rows: T[] }> {
-  const p = getPool();
+  const p = await getPool();
   let lastErr: any;
   for (let i = 0; i < attempts; i++) {
     try {
@@ -62,14 +92,10 @@ export async function query<T = any>(text: string, params?: any[], attempts = 4)
     } catch (e: any) {
       lastErr = e;
       if (!RETRYABLE.test(e.message || '')) throw e;
-      await new Promise(r => setTimeout(r, 600 * (i + 1))); // 0.6s, 1.2s, 1.8s
+      await new Promise(r => setTimeout(r, 600 * (i + 1))); // 0.6s, 1.2s, 1.8s, 2.4s
     }
   }
   throw lastErr;
-}
-
-export function dbConfigured(): boolean {
-  return !!(process.env.DATABASE_URL || process.env.PGHOST);
 }
 
 let schemaReady = false;
