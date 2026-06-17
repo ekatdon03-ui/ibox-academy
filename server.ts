@@ -5,7 +5,7 @@ import axios from 'axios';
 import multer from 'multer';
 import { spawn } from 'child_process';
 import { createServer as createViteServer } from 'vite';
-import { initSchema, dbConfigured } from './server/db';
+import { initSchema, dbConfigured, query as pgQuery } from './server/db';
 import * as repo from './server/repo';
 import { uploadToS3, s3Configured } from './server/s3';
 import { signToken, requireAdmin, isAdminClaims, verifyToken, ADMIN_UIDS, ADMIN_EMAILS } from './server/auth';
@@ -271,6 +271,47 @@ async function startServer() {
     if (isAdminClaims(claims)) return next();
     return res.status(403).json({ error: 'forbidden — нужен ключ миграции или админ-токен' });
   };
+
+  // Diagnostics — pinpoints PG / S3 / Firebase state in one shot.
+  app.all('/api/diag', migrateGuard, wrap(async (_req, res) => {
+    const out: any = {};
+    // PostgreSQL
+    try {
+      await initSchema();
+      const r = await pgQuery('SELECT count(*)::int AS n FROM courses');
+      out.postgres = { ok: true, coursesInPg: r.rows[0].n, host: process.env.PGHOST || 'DATABASE_URL' };
+    } catch (e: any) {
+      out.postgres = { ok: false, error: e.message };
+    }
+    // S3
+    out.s3 = { configured: s3Configured(), endpoint: process.env.S3_ENDPOINT, bucket: process.env.S3_BUCKET };
+    // Firebase (source of migration)
+    try {
+      const admin = getAdmin();
+      out.firebase = { adminInit: !!admin, firestoreDbId: FIRESTORE_DB_ID };
+      const b64 = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
+      if (b64) {
+        try { out.firebase.serviceAccountProject = JSON.parse(Buffer.from(b64, 'base64').toString('utf-8')).project_id; } catch {}
+      } else {
+        out.firebase.serviceAccountProject = '(FIREBASE_SERVICE_ACCOUNT_BASE64 not set)';
+      }
+      const fdb = getAdminDb();
+      if (fdb) {
+        try {
+          const snap = await fdb.collection('courses').limit(1).get();
+          out.firebase.coursesReadable = true;
+          out.firebase.sampleSize = snap.size;
+        } catch (e: any) {
+          out.firebase.readError = e.message;
+        }
+      } else {
+        out.firebase.adminDb = null;
+      }
+    } catch (e: any) {
+      out.firebase = { error: e.message };
+    }
+    res.json(out);
+  }));
 
   app.all('/api/migrate-firebase', migrateGuard, wrap(async (_req, res) => {
     const fdb = getAdminDb();
