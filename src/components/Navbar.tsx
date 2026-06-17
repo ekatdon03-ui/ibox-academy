@@ -3,8 +3,6 @@ import { UserProfile, Course } from '../types';
 import { Bell, Search, X, BookOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { contentService } from '../services/contentService';
-import { db } from '../lib/firebase';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
 
 interface NavbarProps {
   user: UserProfile;
@@ -50,27 +48,17 @@ export default function Navbar({ user, courses = [], onSelectCourse, onNavigate 
 
   useEffect(() => {
     if (!user.id) return;
-
-    const toItem = (d: any) => {
-      const data = typeof d.data === 'function' ? d.data() : d;
-      return {
-        id: d.id ?? data.id,
-        ...data,
-        time: data.createdAt?.seconds
-          ? new Date(data.createdAt.seconds * 1000).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
-          : 'Только что'
-      };
-    };
+    let cancelled = false;
 
     const handleItems = (items: any[]) => {
-      // Sort client-side — no composite index required
-      const sorted = [...items].sort((a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0));
-      setNotifications(sorted);
+      if (cancelled) return;
+      // Server already returns newest-first
+      setNotifications(items);
 
       // Show banner only once per session (sessionStorage persists across remounts)
       const alreadyShown = sessionStorage.getItem(bannerShownKey);
       if (!alreadyShown) {
-        const unread = sorted.filter(n => !n.read);
+        const unread = items.filter(n => !n.read);
         if (unread.length > 0) {
           sessionStorage.setItem(bannerShownKey, '1');
           setBanner(unread.length === 1
@@ -82,22 +70,11 @@ export default function Navbar({ user, courses = [], onSelectCourse, onNavigate 
       }
     };
 
-    // Query WITHOUT orderBy — no composite index needed; sort is done client-side
-    const q = query(
-      collection(db, 'notifications'),
-      where('userId', '==', user.id)
-    );
-
-    const unsub = onSnapshot(q, (snap) => {
-      handleItems(snap.docs.map(toItem));
-    }, () => {
-      // Fallback: one-time fetch if real-time listener fails
-      contentService.getNotifications(user.id)
-        .then(handleItems)
-        .catch(() => {});
-    });
-
-    return () => unsub();
+    const load = () => contentService.getNotifications(user.id).then(handleItems).catch(() => {});
+    load();
+    // Poll for new notifications every 45s (replaces Firestore realtime listener)
+    const interval = setInterval(load, 45000);
+    return () => { cancelled = true; clearInterval(interval); };
   }, [user.id]);
 
   // Close panel on outside click

@@ -1,17 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { UserProfile, SimulatorSession, CourseResult, UserCourseProgress, Course } from '../types';
-import { Award, Star, TrendingUp, Edit2, LogOut, Shield, MapPin, Mail, Zap, Clock } from 'lucide-react';
+import { Award, Star, TrendingUp, Edit2, Shield, MapPin, Mail, Zap, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { contentService } from '../services/contentService';
 
 interface ProfileViewProps {
   user: UserProfile;
-  onLogout: () => void;
   onUpdateUser: (user: UserProfile) => void;
   courses: Course[];
 }
 
-export default function ProfileView({ user, onLogout, onUpdateUser, courses }: ProfileViewProps) {
+export default function ProfileView({ user, onUpdateUser, courses }: ProfileViewProps) {
   const [isEditingAvatar, setIsEditingAvatar] = useState(false);
   const [newAvatarUrl, setNewAvatarUrl] = useState(user.avatar || '');
   const [results, setResults] = useState<CourseResult[]>([]);
@@ -261,13 +260,6 @@ export default function ProfileView({ user, onLogout, onUpdateUser, courses }: P
           </div>
         </div>
 
-        <button
-          onClick={onLogout}
-          className="w-full py-5 sm:py-8 border-4 border-dashed border-gray-200 rounded-[32px] sm:rounded-[56px] text-gray-300 hover:text-red-500 hover:border-red-500/20 hover:bg-red-50 active:bg-red-50 transition-all flex items-center justify-center gap-3 sm:gap-4 font-display font-black uppercase tracking-[0.2em] text-sm touch-manipulation"
-        >
-          <LogOut size={24} />
-          Выйти из системы Academy
-        </button>
       </div>
 
       <AnimatePresence>

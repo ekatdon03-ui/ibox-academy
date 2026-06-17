@@ -15,8 +15,10 @@ export interface QuizQuestion {
 }
 
 export interface TestConfig {
-  type: 'ai' | 'manual' | 'none';
+  type: 'ai' | 'manual' | 'none' | 'bank';
   questions: QuizQuestion[];
+  questionBankId?: string;   // when set, questions are drawn from this Moodle bank
+  randomCount?: number;      // how many random questions to show from the bank
 }
 
 export interface Course {

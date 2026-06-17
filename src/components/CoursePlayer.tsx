@@ -205,12 +205,29 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
   const showQuiz = quizType !== null;
   const testMode = course.testMode ?? 'final';
   const lessons = course.lessons || [];
-  const hasFinalQuiz = (testMode === 'final' || testMode === 'both') && (course.testConfig?.questions?.length ?? 0) > 0;
+  const usesBank = !!course.testConfig?.questionBankId;
+  const hasFinalQuiz = (testMode === 'final' || testMode === 'both') &&
+    ((course.testConfig?.questions?.length ?? 0) > 0 || usesBank);
   const hasPerLessonQuiz = testMode === 'per_lesson' || testMode === 'both';
+
+  // When the final test draws from a Moodle bank, fetch & randomize the questions.
+  const [bankQuestions, setBankQuestions] = useState<typeof course.testConfig.questions | null>(null);
+  useEffect(() => {
+    const bankId = course.testConfig?.questionBankId;
+    if (!bankId) { setBankQuestions(null); return; }
+    contentService.getQuestionBank(bankId).then((bank: any) => {
+      const all = bank?.questions || [];
+      const shuffled = [...all].sort(() => Math.random() - 0.5);
+      const n = course.testConfig?.randomCount || shuffled.length;
+      setBankQuestions(shuffled.slice(0, Math.max(1, n)));
+    }).catch(() => setBankQuestions([]));
+  }, [course.testConfig?.questionBankId, course.testConfig?.randomCount]);
+
+  const finalQuestions = usesBank ? (bankQuestions ?? []) : (course.testConfig?.questions ?? []);
 
   const activeQuestions = quizType === 'lesson'
     ? (lessons[currentLessonIdx]?.testConfig?.questions ?? [])
-    : (course.testConfig?.questions ?? []);
+    : finalQuestions;
 
   const allAnswered = activeQuestions.length > 0 &&
     activeQuestions.every((_, idx) => Number.isInteger(selectedAnswers[idx]));

@@ -1,12 +1,11 @@
 import React from 'react';
-import { GraduationCap, Terminal, Book, User, LayoutDashboard, BarChart3, LogOut } from 'lucide-react';
+import { GraduationCap, Terminal, Book, User, LayoutDashboard, BarChart3 } from 'lucide-react';
 import { UserProfile } from '../types';
 
 interface SidebarProps {
   user: UserProfile;
   activeTab: string;
   setActiveTab: (tab: string) => void;
-  onLogout: () => void;
 }
 
 function NavBtn({ id, label, icon: Icon, active, onClick }: {
@@ -35,7 +34,7 @@ function NavBtn({ id, label, icon: Icon, active, onClick }: {
   );
 }
 
-export default function Sidebar({ user, activeTab, setActiveTab, onLogout }: SidebarProps) {
+export default function Sidebar({ user, activeTab, setActiveTab }: SidebarProps) {
   const isAdmin   = user.role === 'admin';
   const isManager = user.role === 'manager' || user.role === 'admin';
 
@@ -67,24 +66,6 @@ export default function Sidebar({ user, activeTab, setActiveTab, onLogout }: Sid
 
       {/* Spacer */}
       <div className="flex-1" />
-
-      {/* Logout */}
-      <div className="relative group mb-1">
-        <button
-          onClick={onLogout}
-          className="w-11 h-11 flex items-center justify-center rounded-2xl
-                     text-white/30 hover:bg-red-500/20 hover:text-red-400 transition-all"
-        >
-          <LogOut size={18} />
-        </button>
-        <div className="pointer-events-none absolute left-14 top-1/2 -translate-y-1/2 z-[9999]
-                        opacity-0 group-hover:opacity-100 transition-opacity duration-150">
-          <div className="bg-[#001a38] text-white text-[10px] font-black uppercase tracking-widest
-                          px-3 py-1.5 rounded-xl whitespace-nowrap shadow-xl border border-white/10">
-            Выход
-          </div>
-        </div>
-      </div>
     </div>
   );
 }

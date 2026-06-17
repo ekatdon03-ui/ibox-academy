@@ -15,3 +15,25 @@ services:
         value: 10000
       - key: GEMINI_API_KEY
         sync: false   # Укажи вручную в Render Dashboard → Environment
+      # ── JWT (авторизация вместо Firebase) ──
+      - key: JWT_SECRET
+        generateValue: true   # Render сгенерирует длинный секрет автоматически
+      # ── PostgreSQL (Timeweb) — заполнить в Dashboard ──
+      - key: DATABASE_URL
+        sync: false   # postgres://user:pass@host:5432/dbname  (или используй PGHOST/PGPORT/...)
+      - key: DATABASE_CA_CERT
+        sync: false   # содержимое .crt сертификата Timeweb (для SSL)
+      # ── S3-хранилище (Timeweb) — заполнить в Dashboard ──
+      - key: S3_ENDPOINT
+        sync: false   # напр. https://s3.twcstorage.ru
+      - key: S3_REGION
+        sync: false   # напр. ru-1
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ACCESS_KEY
+        sync: false
+      - key: S3_SECRET_KEY
+        sync: false
+      # ── Firebase (нужен ТОЛЬКО для разовой миграции старых данных) ──
+      - key: FIREBASE_SERVICE_ACCOUNT_BASE64
+        sync: false

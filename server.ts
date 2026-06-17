@@ -2,8 +2,14 @@ import express from 'express';
 import path from 'path';
 import cors from 'cors';
 import axios from 'axios';
+import multer from 'multer';
 import { spawn } from 'child_process';
 import { createServer as createViteServer } from 'vite';
+import { initSchema, dbConfigured } from './server/db';
+import * as repo from './server/repo';
+import { uploadToS3, s3Configured } from './server/s3';
+import { signToken, requireAdmin, isAdminClaims, verifyToken, ADMIN_UIDS, ADMIN_EMAILS } from './server/auth';
+import { parseMoodleXml } from './server/moodle';
 
 // Firebase Admin — for generating custom tokens (Bitrix auth)
 let firebaseAdmin: any = null;
@@ -47,28 +53,8 @@ function getAdminDb() {
   }
 }
 
-const ADMIN_UIDS = ['bitrix_DxMBjT1L'];
-const ADMIN_EMAILS_SERVER = ['oap.ibox.company@gmail.com', 'pem@i-box.company'];
-
-async function verifyAdminToken(authHeader: string | undefined): Promise<string | null> {
-  const admin = getAdmin();
-  if (!admin || !authHeader?.startsWith('Bearer ')) return null;
-  try {
-    const decoded = await admin.auth().verifyIdToken(authHeader.slice(7));
-    if (ADMIN_UIDS.includes(decoded.uid) || ADMIN_EMAILS_SERVER.includes(decoded.email || '')) {
-      return decoded.uid;
-    }
-    // Check roles collection
-    const db = getAdminDb();
-    if (db) {
-      const roleDoc = await db.collection('roles').doc(decoded.uid).get();
-      if (roleDoc.data()?.role === 'admin') return decoded.uid;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
+// Legacy admin email list kept for the bootstrap-admin diagnostic endpoint.
+const ADMIN_EMAILS_SERVER = ADMIN_EMAILS;
 
 async function startServer() {
   const app = express();
@@ -76,6 +62,9 @@ async function startServer() {
 
   app.use(cors());
   app.use(express.json({ limit: '50mb' }));
+
+  // Bootstrap PostgreSQL schema (no-op if DB env not set yet)
+  await initSchema().catch((e) => console.error('[startup] schema init error:', e.message));
 
   // ─────────────────────────────────────────────────────────────────────
   // BITRIX24 AUTO-LOGIN
@@ -88,11 +77,6 @@ async function startServer() {
     const { bitrixDomain, accessToken } = req.body;
     if (!bitrixDomain || !accessToken) {
       return res.status(400).json({ error: 'bitrixDomain and accessToken required' });
-    }
-
-    const admin = getAdmin();
-    if (!admin) {
-      return res.status(503).json({ error: 'Firebase Admin not configured on server' });
     }
 
     try {
@@ -108,32 +92,271 @@ async function startServer() {
         return res.status(401).json({ error: 'Invalid Bitrix token' });
       }
 
-      // Stable Firebase UID tied to this Bitrix user
-      const firebaseUid = `bitrix_${bxUser.ID}`;
+      // Stable UID tied to this Bitrix user (kept identical to the old scheme
+      // so existing data / assignments keep matching).
+      const uid = `bitrix_${bxUser.ID}`;
+      const email = bxUser.EMAIL || '';
+      const isHardcodedAdmin = ADMIN_UIDS.includes(uid) || ADMIN_EMAILS.includes(email) || !!bxUser.IS_ADMIN;
 
-      const customToken = await admin.auth().createCustomToken(firebaseUid, {
-        bitrixId: String(bxUser.ID),
-        isAdmin: !!bxUser.IS_ADMIN
-      });
-
-      res.json({
-        customToken,
-        profile: {
-          id: firebaseUid,
-          bitrixId: String(bxUser.ID),
-          name: `${bxUser.NAME || ''} ${bxUser.LAST_NAME || ''}`.trim() || 'Сотрудник',
-          email: bxUser.EMAIL || '',
-          position: bxUser.WORK_POSITION || 'Сотрудник iBOX',
-          avatar: bxUser.PERSONAL_PHOTO || '',
-          isAdmin: !!bxUser.IS_ADMIN,
-          departmentIds: bxUser.UF_DEPARTMENT || []
+      // Resolve department name (best-effort)
+      let department = 'Общий отдел';
+      try {
+        const deptId = bxUser.UF_DEPARTMENT?.[0];
+        if (deptId) {
+          const dRes = await axios.get(`https://${domain}/rest/department.get`, {
+            params: { auth: accessToken, ID: deptId }, timeout: 8000,
+          });
+          const d = dRes.data?.result?.[0];
+          if (d?.NAME) department = d.NAME;
         }
-      });
+      } catch (_) {}
+
+      let profile: any = {
+        id: uid,
+        bitrixId: String(bxUser.ID),
+        name: `${bxUser.NAME || ''} ${bxUser.LAST_NAME || ''}`.trim() || 'Сотрудник',
+        email,
+        position: bxUser.WORK_POSITION || 'Сотрудник iBOX',
+        avatar: bxUser.PERSONAL_PHOTO || '',
+        department,
+      };
+
+      // Persist / merge profile in Postgres (preserves assignedCourses etc. on conflict)
+      if (dbConfigured()) {
+        try {
+          const existing = await repo.resolveUserProfile(uid);
+          const dbRole = await repo.resolveUserRole(uid, existing?.role || 'employee');
+          const role = isHardcodedAdmin ? 'admin' : dbRole;
+          profile = { ...(existing || {}), ...profile, role,
+            assignedCourses: existing?.assignedCourses || [] };
+          await repo.saveProfile(profile);
+          if (role === 'admin' || role === 'manager') await repo.setUserRole(uid, role);
+        } catch (e: any) {
+          console.warn('[bitrix-auth] profile persist failed:', e.message);
+          profile.role = isHardcodedAdmin ? 'admin' : 'employee';
+        }
+      } else {
+        profile.role = isHardcodedAdmin ? 'admin' : 'employee';
+      }
+
+      const token = signToken({ uid, bitrixId: String(bxUser.ID), email, role: profile.role, isAdmin: isHardcodedAdmin });
+      res.json({ token, profile });
     } catch (e: any) {
       console.error('Bitrix auth error:', e.message);
       res.status(500).json({ error: 'Bitrix auth failed', details: e.message });
     }
   });
+
+  // ═════════════════════════════════════════════════════════════════════
+  // REST API — PostgreSQL-backed (replaces Firestore)
+  // Public reads (courses/glossary) are open; writes require admin JWT.
+  // ═════════════════════════════════════════════════════════════════════
+  const wrap = (fn: (req: any, res: any) => Promise<any>) => async (req: any, res: any) => {
+    try { await fn(req, res); }
+    catch (e: any) { console.error('[api]', req.method, req.path, e.message); res.status(500).json({ error: e.message }); }
+  };
+  const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 1024 * 1024 * 1024 } });
+
+  // Soft auth: attach req.user from a valid JWT if present; never blocks the request.
+  // (The app runs only inside Bitrix and every client gets a token at login.)
+  const requireAuthSoft = (req: any, _res: any, next: any) => {
+    const h = req.headers.authorization;
+    req.user = h?.startsWith('Bearer ') ? verifyToken(h.slice(7)) : null;
+    next();
+  };
+
+  // ── File upload → S3 ──────────────────────────────────────────────────
+  app.post('/api/upload', requireAdmin, upload.single('file'), wrap(async (req, res) => {
+    if (!s3Configured()) return res.status(503).json({ error: 'S3 не настроен на сервере' });
+    if (!req.file) return res.status(400).json({ error: 'file required' });
+    const url = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype);
+    res.json({ url, name: req.file.originalname, size: req.file.size, contentType: req.file.mimetype });
+  }));
+
+  // ── Courses ───────────────────────────────────────────────────────────
+  app.get('/api/courses', wrap(async (_req, res) => res.json(await repo.getAllCourses())));
+  app.post('/api/courses', requireAdmin, wrap(async (req, res) => res.json({ id: await repo.createCourse(req.body) })));
+  app.put('/api/courses/:id', requireAdmin, wrap(async (req, res) => { await repo.updateCourse(req.params.id, req.body); res.json({ ok: true }); }));
+  app.delete('/api/courses/:id', requireAdmin, wrap(async (req, res) => { await repo.deleteCourse(req.params.id); res.json({ ok: true }); }));
+
+  // ── Glossary ──────────────────────────────────────────────────────────
+  app.get('/api/glossary', wrap(async (_req, res) => res.json(await repo.getGlossary())));
+  app.post('/api/glossary', requireAdmin, wrap(async (req, res) => res.json({ id: await repo.addGlossaryTerm(req.body) })));
+  app.put('/api/glossary/:id', requireAdmin, wrap(async (req, res) => { await repo.updateGlossaryTerm(req.params.id, req.body); res.json({ ok: true }); }));
+  app.delete('/api/glossary/:id', requireAdmin, wrap(async (req, res) => { await repo.deleteGlossaryTerm(req.params.id); res.json({ ok: true }); }));
+
+  // ── Results ───────────────────────────────────────────────────────────
+  app.get('/api/results', requireAdmin, wrap(async (_req, res) => res.json(await repo.getAllResults())));
+  app.get('/api/results/me', requireAuthSoft, wrap(async (req, res) => res.json(await repo.getResultsForUser(req.user?.uid))));
+  app.get('/api/results/user/:userId', requireAuthSoft, wrap(async (req, res) => res.json(await repo.getResultsForUser(req.params.userId))));
+  app.post('/api/results', requireAuthSoft, wrap(async (req, res) => { await repo.saveResult({ ...req.body, userId: req.body.userId || req.user?.uid }); res.json({ ok: true }); }));
+
+  // ── Progress ──────────────────────────────────────────────────────────
+  app.get('/api/progress/:userId/:courseId', requireAuthSoft, wrap(async (req, res) => res.json(await repo.getCourseProgress(req.params.userId, req.params.courseId))));
+  app.get('/api/progress/user/:userId', requireAuthSoft, wrap(async (req, res) => res.json(await repo.getAllProgressForUser(req.params.userId))));
+  app.post('/api/progress/lesson', requireAuthSoft, wrap(async (req, res) => {
+    const { userId, courseId, lessonId, completed, totalLessons } = req.body;
+    res.json(await repo.updateLessonProgress(userId || req.user?.uid, courseId, lessonId, completed, totalLessons));
+  }));
+
+  // ── Users ─────────────────────────────────────────────────────────────
+  app.get('/api/users', requireAuthSoft, wrap(async (_req, res) => res.json(await repo.getAllUsers())));
+  app.get('/api/users/:id', requireAuthSoft, wrap(async (req, res) => res.json(await repo.resolveUserProfile(req.params.id))));
+  app.put('/api/users/:id', requireAuthSoft, wrap(async (req, res) => {
+    // Users may edit their own profile; admins may edit anyone
+    if (req.params.id !== req.user?.uid && !isAdminClaims(req.user)) return res.status(403).json({ error: 'forbidden' });
+    await repo.saveProfile({ ...req.body, id: req.params.id }); res.json({ ok: true });
+  }));
+  app.delete('/api/users/:id', requireAdmin, wrap(async (req, res) => { await repo.deleteUserProfile(req.params.id); res.json({ ok: true }); }));
+  app.post('/api/users/:id/role', requireAdmin, wrap(async (req, res) => { await repo.setUserRole(req.params.id, req.body.role); res.json({ ok: true }); }));
+  app.post('/api/assign', requireAdmin, wrap(async (req, res) => { await repo.assignCourseToUser(req.body.userId, req.body.courseId); res.json({ ok: true }); }));
+  app.post('/api/unassign', requireAdmin, wrap(async (req, res) => { await repo.unassignCourseFromUser(req.body.userId, req.body.courseId); res.json({ ok: true }); }));
+  app.post('/api/mass-assign', requireAdmin, wrap(async (req, res) => res.json({ count: await repo.massAssignCourse(req.body.courseId, req.body.userIds || []) })));
+
+  // ── Notifications ─────────────────────────────────────────────────────
+  app.get('/api/notifications/:userId', requireAuthSoft, wrap(async (req, res) => res.json(await repo.getNotifications(req.params.userId))));
+  app.post('/api/notifications', requireAuthSoft, wrap(async (req, res) => { await repo.createNotification(req.body.userId, req.body.title, req.body.text); res.json({ ok: true }); }));
+  app.post('/api/notifications/read', requireAuthSoft, wrap(async (req, res) => { await repo.markNotificationsRead(req.body.ids || []); res.json({ ok: true }); }));
+
+  // ── AI settings ───────────────────────────────────────────────────────
+  app.get('/api/ai-settings', wrap(async (_req, res) => res.json(await repo.getAISettings())));
+  app.put('/api/ai-settings', requireAdmin, wrap(async (req, res) => { await repo.saveAISettings(req.body); res.json({ ok: true }); }));
+
+  // ── Simulator sessions ────────────────────────────────────────────────
+  app.post('/api/simulator', requireAuthSoft, wrap(async (req, res) => res.json({ id: await repo.saveSimulatorSession({ ...req.body, userId: req.body.userId || req.user?.uid }) })));
+  app.get('/api/simulator/:userId', requireAuthSoft, wrap(async (req, res) => res.json(await repo.getSimulatorSessions(req.params.userId))));
+
+  // ── Question banks (Moodle XML import) ────────────────────────────────
+  app.get('/api/question-banks', requireAdmin, wrap(async (_req, res) => res.json(await repo.getQuestionBanks())));
+  app.get('/api/question-banks/:id', requireAuthSoft, wrap(async (req, res) => res.json(await repo.getQuestionBank(req.params.id))));
+  app.delete('/api/question-banks/:id', requireAdmin, wrap(async (req, res) => { await repo.deleteQuestionBank(req.params.id); res.json({ ok: true }); }));
+  app.post('/api/import-moodle', requireAdmin, upload.single('file'), wrap(async (req, res) => {
+    const xml = req.file ? req.file.buffer.toString('utf-8') : req.body?.xml;
+    if (!xml) return res.status(400).json({ error: 'xml file or body required' });
+    const parsed = parseMoodleXml(xml);
+    if (!parsed.questions.length) return res.status(422).json({ error: 'Не найдено поддерживаемых вопросов в XML (нужны multichoice / truefalse).', skipped: parsed.skipped });
+    const title = req.body?.title || req.file?.originalname?.replace(/\.xml$/i, '') || 'Банк вопросов';
+    const id = await repo.createQuestionBank({ title, courseId: req.body?.courseId, questions: parsed.questions });
+    res.json({ id, title, count: parsed.questions.length, skipped: parsed.skipped });
+  }));
+
+  // ═════════════════════════════════════════════════════════════════════
+  // ONE-TIME MIGRATION: Firestore → PostgreSQL (+ base64 files → S3)
+  // POST /api/migrate-firebase   (admin JWT required)
+  // Idempotent-ish: re-running overwrites rows with same ids. Nothing is lost.
+  // ═════════════════════════════════════════════════════════════════════
+  async function dataUrlToS3(value: any, nameHint: string): Promise<any> {
+    if (typeof value !== 'string' || !value.startsWith('data:')) return value;
+    if (!s3Configured()) return value; // leave as-is if S3 not ready
+    try {
+      const m = value.match(/^data:([^;]+);base64,(.*)$/s);
+      if (!m) return value;
+      const [, mime, b64] = m;
+      const buf = Buffer.from(b64, 'base64');
+      const ext = (mime.split('/')[1] || 'bin').split('+')[0];
+      return await uploadToS3(buf, `${nameHint}.${ext}`, mime);
+    } catch (e: any) {
+      console.warn('[migrate] data-url upload failed:', e.message);
+      return value;
+    }
+  }
+
+  app.post('/api/migrate-firebase', requireAdmin, wrap(async (_req, res) => {
+    const fdb = getAdminDb();
+    if (!fdb) return res.status(503).json({ error: 'Firebase Admin/Firestore not configured (FIREBASE_SERVICE_ACCOUNT_BASE64 missing)' });
+    if (!dbConfigured()) return res.status(503).json({ error: 'PostgreSQL not configured' });
+    await initSchema();
+
+    const stats: Record<string, number> = {};
+    const getAll = async (coll: string) => (await fdb.collection(coll).get()).docs;
+
+    // Courses (+ embedded lessons; upload any base64 files to S3)
+    let n = 0;
+    for (const d of await getAll('courses')) {
+      const c: any = { id: d.id, ...d.data() };
+      c.thumbnail = await dataUrlToS3(c.thumbnail, `thumb_${d.id}`);
+      c.fileUrl = await dataUrlToS3(c.fileUrl, `course_${d.id}`);
+      if (Array.isArray(c.lessons)) {
+        for (const l of c.lessons) {
+          if (Array.isArray(l.fileUrls)) {
+            const out: string[] = [];
+            for (let i = 0; i < l.fileUrls.length; i++) out.push(await dataUrlToS3(l.fileUrls[i], `lesson_${l.id || ''}_${i}`));
+            l.fileUrls = out;
+          }
+          if (l.fileUrl) l.fileUrl = await dataUrlToS3(l.fileUrl, `lesson_${l.id || ''}`);
+        }
+      }
+      await repo.createCourse(c);
+      n++;
+    }
+    stats.courses = n;
+
+    // Glossary
+    n = 0;
+    for (const d of await getAll('glossary')) { await repo.addGlossaryTerm({ id: d.id, ...d.data() }); n++; }
+    stats.glossary = n;
+
+    // Users (+ avatar base64 → S3)
+    n = 0;
+    for (const d of await getAll('users')) {
+      const u: any = { id: d.id, ...d.data() };
+      u.avatar = await dataUrlToS3(u.avatar, `avatar_${d.id}`);
+      await repo.saveProfile(u); n++;
+    }
+    stats.users = n;
+
+    // Roles
+    n = 0;
+    for (const d of await getAll('roles')) { const r: any = d.data(); if (r?.role) { await repo.setUserRole(d.id, r.role); n++; } }
+    stats.roles = n;
+
+    // Results
+    n = 0;
+    for (const d of await getAll('results')) {
+      const r: any = d.data();
+      if (r.userId && r.courseId) { await repo.saveResult(r); n++; }
+    }
+    stats.results = n;
+
+    // Progress
+    n = 0;
+    for (const d of await getAll('progress')) {
+      const p: any = d.data();
+      if (p.userId && p.courseId) { await repo.saveProgressRaw(p); n++; }
+    }
+    stats.progress = n;
+
+    // Notifications
+    n = 0;
+    for (const d of await getAll('notifications')) {
+      const nt: any = d.data();
+      if (nt.userId) {
+        await repo.createNotificationRaw({
+          id: d.id, userId: nt.userId, title: nt.title || '', text: nt.text || '',
+          read: !!nt.read,
+          createdAt: nt.createdAt?.seconds ? new Date(nt.createdAt.seconds * 1000) : new Date(),
+        });
+        n++;
+      }
+    }
+    stats.notifications = n;
+
+    // Simulator sessions
+    n = 0;
+    for (const d of await getAll('simulator_sessions')) {
+      const s: any = d.data();
+      if (s.userId) { await repo.saveSimulatorSession(s); n++; }
+    }
+    stats.simulator_sessions = n;
+
+    // AI settings
+    try {
+      const s = await fdb.collection('settings').doc('ai_prompts').get();
+      if (s.exists) { await repo.saveAISettings(s.data()); stats.settings = 1; }
+    } catch (_) {}
+
+    res.json({ ok: true, migrated: stats });
+  }));
 
   // ─────────────────────────────────────────────────────────────────────
   // ADMIN BOOTSTRAP — forcefully sets admin role via Firebase Admin SDK
@@ -184,46 +407,6 @@ async function startServer() {
       res.json({ ok: true, results, allUsers: userList });
     } catch (_) {
       res.json({ ok: true, results });
-    }
-  });
-
-  // ─────────────────────────────────────────────────────────────────────
-  // ADMIN FIRESTORE — bypasses client security rules via Admin SDK
-  // POST /api/admin/firestore  { operation, collection, docId?, data?, merge? }
-  // ─────────────────────────────────────────────────────────────────────
-  app.post('/api/admin/firestore', async (req, res) => {
-    const admin = getAdmin();
-    if (!admin) return res.status(503).json({ error: 'Admin SDK not configured' });
-
-    const uid = await verifyAdminToken(req.headers.authorization as string | undefined);
-    if (!uid) return res.status(403).json({ error: 'Admin only' });
-
-    const db = getAdminDb();
-    if (!db) return res.status(503).json({ error: 'Admin Firestore unavailable' });
-
-    const { operation, collection: coll, docId, data, merge } = req.body;
-    if (!coll) return res.status(400).json({ error: 'collection required' });
-
-    try {
-      if (operation === 'delete') {
-        if (!docId) return res.status(400).json({ error: 'docId required for delete' });
-        await db.collection(coll).doc(docId).delete();
-        return res.json({ ok: true });
-      }
-      if (operation === 'set') {
-        const ref = docId ? db.collection(coll).doc(docId) : db.collection(coll).doc();
-        await ref.set(data, { merge: !!merge });
-        return res.json({ ok: true, id: ref.id });
-      }
-      if (operation === 'update') {
-        if (!docId) return res.status(400).json({ error: 'docId required for update' });
-        await db.collection(coll).doc(docId).update(data);
-        return res.json({ ok: true });
-      }
-      return res.status(400).json({ error: 'Unknown operation: ' + operation });
-    } catch (e: any) {
-      console.error('[Admin Firestore]', operation, coll, e.message);
-      return res.status(500).json({ error: e.message });
     }
   });
 

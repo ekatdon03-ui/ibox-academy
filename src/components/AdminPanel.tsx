@@ -8,11 +8,9 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Course, GlossaryTerm, UserProfile, TestConfig, QuizQuestion, Lesson } from '../types';
-import { contentService, AISettings } from '../services/contentService';
+import { contentService, AISettings, QuestionBankInfo } from '../services/contentService';
 import { aiService } from '../services/aiService';
 import { bitrixService } from '../services/bitrixService';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { writeBatch, doc } from 'firebase/firestore';
 
 interface AdminPanelProps {
   courses: Course[];
@@ -1185,24 +1183,26 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
     setLessons([...lessons, newLesson]);
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, lessonIdx?: number) => {
+  // Tracks which slot is uploading: a lesson index, 'course', or null
+  const [uploadingIdx, setUploadingIdx] = useState<number | 'course' | null>(null);
+
+  // Uploads the file directly to our S3 storage and stores the returned URL.
+  // No 1 MB limit anymore — files live in object storage, not the database.
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, lessonIdx?: number) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    
-    // Check file size (browser side)
-    if (file.size > 15 * 1024 * 1024) {
-      showFormToast("Файл слишком большой (макс. 15МБ). Для видео используйте YouTube/Vimeo ссылки.", true);
+    e.target.value = ''; // allow re-selecting the same file later
+
+    const MAX = 1024 * 1024 * 1024; // 1 ГБ
+    if (file.size > MAX) {
+      showFormToast('Файл слишком большой (макс. 1 ГБ).', true);
       return;
     }
 
-    // Firestore Doc limit is 1MB. If file is > 1MB, it MUST be hosted externally.
-    if (file.size > 700 * 1024) {
-      showFormToast(`Файл ${(file.size / 1024).toFixed(0)} КБ превышает лимит Firestore (~1МБ). Рекомендуется ссылка (Google Drive / Bitrix24).`, true);
-    }
-    
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const url = event.target?.result as string;
+    const slot: number | 'course' = lessonIdx !== undefined ? lessonIdx : 'course';
+    setUploadingIdx(slot);
+    try {
+      const { url } = await contentService.uploadFile(file);
       if (lessonIdx !== undefined) {
         setLessons(prev => {
           const n = [...prev];
@@ -1214,8 +1214,12 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
       } else {
         setFileUrl(url);
       }
-    };
-    reader.readAsDataURL(file);
+      showFormToast(`Файл загружен (${(file.size / 1024 / 1024).toFixed(1)} МБ).`);
+    } catch (err: any) {
+      showFormToast('Ошибка загрузки файла: ' + (err?.message || 'неизвестная ошибка'), true);
+    } finally {
+      setUploadingIdx(null);
+    }
   };
 
   const [extractingIdx, setExtractingIdx] = useState<number | null>(null);
@@ -1229,32 +1233,20 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
     }
     setIsExtractingCourse(true);
     try {
-      let base64Content = '';
-      let mimeTypeContent = '';
+      let extracted = '';
 
       if (fileUrl.startsWith('data:')) {
+        // Legacy inline data URI
         const parts = fileUrl.split(',');
-        base64Content = parts[1];
-        mimeTypeContent = parts[0].split(':')[1].split(';')[0];
+        const base64Content = parts[1];
+        const mimeTypeContent = parts[0].split(':')[1].split(';')[0];
+        extracted = (await aiService.extractContentFromMedia(base64Content, mimeTypeContent)) ?? '';
       } else {
-        try {
-          const response = await axios.post('/api/proxy-fetch', { url: fileUrl });
-          base64Content = response.data.base64;
-          mimeTypeContent = response.data.contentType || 'application/octet-stream';
-        } catch (fetchErr: any) {
-          showFormToast("Не удалось загрузить файл по ссылке. Убедитесь, что доступ открыт «Всем, у кого есть ссылка».", true);
-          setIsExtractingCourse(false);
-          return;
-        }
+        // Remote URL (S3 / external link) — server handles large media (video→ffmpeg, big PDF→Files API)
+        const resp = await axios.post('/api/extract-media-knowledge', { url: fileUrl }, { timeout: 0 });
+        extracted = resp.data?.text ?? '';
       }
 
-      if (mimeTypeContent.toLowerCase().includes('text/html')) {
-        showFormToast("Получена HTML-страница вместо файла. В Google Drive: Файл → Поделиться → Опубликовать в интернете.", true);
-        setIsExtractingCourse(false);
-        return;
-      }
-
-      const extracted = await aiService.extractContentFromMedia(base64Content, mimeTypeContent);
       if (extracted) {
         setCourseAiKnowledge(extracted);
         // Add to first lesson or auto-create a lesson "Материалы курса"
@@ -1393,14 +1385,6 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
         assignedToUsers: initialData?.assignedToUsers || []
       };
 
-      // Check total payload size (Firestore limit is 1MB per document)
-      const dataSize = JSON.stringify(courseData).length;
-      if (dataSize > 900000) {
-        showFormToast("Размер курса превышает лимит БД (1МБ). Удалите загруженные файлы и используйте ссылки.", true);
-        setIsGenerating(false);
-        return;
-      }
-
       console.log("Saving course:", courseData);
       let resId = initialData?.id;
       if (initialData?.id) {
@@ -1499,9 +1483,9 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
                   >
                     <div className="flex flex-col">
                       <span className="font-bold text-[10px] text-gray-500 uppercase">
-                        {fileUrl && fileUrl.startsWith('data:') ? 'Файл готов (локально)' : 'Загрузить файл'}
+                        {uploadingIdx === 'course' ? 'Загрузка…' : (fileUrl ? 'Файл загружен' : 'Загрузить файл')}
                       </span>
-                      <span className="text-[8px] text-red-500 font-bold uppercase tracking-tighter">Лимит базы: 1МБ / Иначе используйте ссылку</span>
+                      <span className="text-[8px] text-gray-400 font-bold uppercase tracking-tighter">Видео, PDF, презентации — без ограничений</span>
                     </div>
                     <Upload size={16} className="text-gray-400" />
                   </label>
@@ -1516,7 +1500,7 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
                 </div>
               </div>
               <p className="text-[8px] font-bold text-gray-400 ml-4 leading-relaxed uppercase tracking-tighter">
-                * Рекомендуется использовать ссылки для файлов более 1МБ (презентации, длинные видео).
+                * Можно загрузить файл напрямую (видео, PDF, презентации) или вставить ссылку.
               </p>
               {/* Course-level AI extraction button */}
               {fileUrl && (
@@ -1711,7 +1695,7 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
                           <div className="flex flex-col gap-2">
                              <div className="flex items-center gap-2 text-gray-400">
                                 <Upload size={12} strokeWidth={3} />
-                                <span className="text-[9px] font-black uppercase">Загрузить файл (Max 1MB)</span>
+                                <span className="text-[9px] font-black uppercase">Загрузить файл (видео, PDF, презентации)</span>
                              </div>
                              <div className="grid grid-cols-2 gap-2">
                                 <div className="relative">
@@ -1722,7 +1706,7 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
                                     onChange={(e) => handleFileUpload(e, idx)}
                                   />
                                   <div className="w-full bg-[#F5F7FA] rounded-2xl px-5 py-3 text-[10px] font-bold text-gray-400 border-2 border-dashed border-gray-200 text-center truncate">
-                                    Выбрать файл
+                                    {uploadingIdx === idx ? 'Загрузка…' : 'Выбрать файл'}
                                   </div>
                                 </div>
                                 <button
@@ -1826,6 +1810,39 @@ function TestEditor({ course, onSave, showToast }: {
   const [lessons, setLessons] = useState<Lesson[]>(course.lessons || []);
   const [expandedLesson, setExpandedLesson] = useState<number | null>(null);
 
+  // ── Question bank (Moodle XML) for the final test ──
+  const [questionBankId, setQuestionBankId] = useState<string | undefined>(course.testConfig?.questionBankId);
+  const [randomCount, setRandomCount] = useState<number>(course.testConfig?.randomCount || 10);
+  const [banks, setBanks] = useState<QuestionBankInfo[]>([]);
+  const [importingBank, setImportingBank] = useState(false);
+  const [bankMsg, setBankMsg] = useState('');
+
+  useEffect(() => {
+    contentService.getQuestionBanks().then(setBanks).catch(() => {});
+  }, []);
+
+  const handleImportMoodle = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setImportingBank(true);
+    setBankMsg('');
+    try {
+      const r = await contentService.importMoodleXml(file, file.name.replace(/\.xml$/i, ''), course.id);
+      const fresh = await contentService.getQuestionBanks();
+      setBanks(fresh);
+      setQuestionBankId(r.id);
+      if (!randomCount || randomCount > r.count) setRandomCount(Math.min(10, r.count));
+      setBankMsg(`Импортировано вопросов: ${r.count}${r.skipped ? `, пропущено: ${r.skipped}` : ''}.`);
+    } catch (err: any) {
+      setBankMsg('Ошибка импорта: ' + (err?.message || 'неизвестная ошибка'));
+    } finally {
+      setImportingBank(false);
+    }
+  };
+
+  const selectedBank = banks.find(b => b.id === questionBankId);
+
   const addQuestion = () => {
     setQuestions([...questions, { question: '', options: ['', '', '', ''], correctAnswer: 0 }]);
   };
@@ -1839,13 +1856,22 @@ function TestEditor({ course, onSave, showToast }: {
   };
 
   const handleSave = () => {
+    let testConfig: TestConfig;
+    if (testMode === 'none') {
+      testConfig = { type: 'none', questions: [] };
+    } else if (questionBankId) {
+      // Final test pulls N random questions from the imported Moodle bank
+      testConfig = { type: 'bank', questions, questionBankId, randomCount };
+    } else {
+      testConfig = { type: 'manual', questions };
+    }
     const updates: Partial<Course> = {
       hasSimulator: simulatorMode !== 'off',
       simulatorMode,
       simulatorTurns,
       testMode,
       lessons,
-      testConfig: { type: testMode === 'none' ? 'none' : 'manual', questions },
+      testConfig,
     };
     onSave(updates);
   };
@@ -2021,6 +2047,61 @@ function TestEditor({ course, onSave, showToast }: {
         {showFinalEditor && (
           <div className="space-y-6">
             <h3 className="text-sm font-display font-black uppercase tracking-widest text-[#002D57]">Итоговый тест</h3>
+
+            {/* ── Question bank (Moodle XML) ── */}
+            <div className="p-6 bg-[#00A3FF]/5 rounded-[28px] border border-[#00A3FF]/15 space-y-4">
+              <div>
+                <p className="font-display font-black uppercase text-sm tracking-tight text-[#002D57]">Банк вопросов (Moodle XML)</p>
+                <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">Загрузите большой банк вопросов — на тесте покажется случайная выборка</p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="relative">
+                  <input
+                    type="file"
+                    accept=".xml,text/xml,application/xml"
+                    id="moodle-xml-upload"
+                    className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                    onChange={handleImportMoodle}
+                  />
+                  <div className="w-full bg-white rounded-2xl px-5 py-3 text-[10px] font-black uppercase tracking-widest text-[#002D57] border-2 border-dashed border-[#00A3FF]/40 text-center flex items-center justify-center gap-2">
+                    <Upload size={14} /> {importingBank ? 'Импорт…' : 'Загрузить Moodle XML'}
+                  </div>
+                </div>
+
+                <select
+                  value={questionBankId || ''}
+                  onChange={e => setQuestionBankId(e.target.value || undefined)}
+                  className="w-full bg-white rounded-2xl px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-[#002D57] border-2 border-transparent focus:border-[#00A3FF] outline-none"
+                >
+                  <option value="">Не использовать банк (ручные вопросы)</option>
+                  {banks.map(b => (
+                    <option key={b.id} value={b.id}>{b.title} ({b.count} вопр.)</option>
+                  ))}
+                </select>
+              </div>
+
+              {selectedBank && (
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-[#002D57]">Показывать случайно:</span>
+                  <input
+                    type="number" min={1} max={selectedBank.count}
+                    value={randomCount}
+                    onChange={e => setRandomCount(Math.max(1, Math.min(selectedBank.count, parseInt(e.target.value) || 1)))}
+                    className="w-20 bg-white rounded-xl px-3 py-2 text-sm font-black text-[#002D57] border-2 border-gray-100 focus:border-[#00A3FF] outline-none text-center"
+                  />
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">из {selectedBank.count} вопросов банка</span>
+                </div>
+              )}
+              {bankMsg && <p className="text-[10px] font-bold text-gray-500">{bankMsg}</p>}
+            </div>
+
+            {questionBankId ? (
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-2">
+                Тест берёт {randomCount} случайных вопросов из банка. Ручные вопросы ниже не используются, пока выбран банк.
+              </p>
+            ) : null}
+
             {questions.map((q, qIdx) => (
               <div key={qIdx} className="bg-gray-50/50 p-8 rounded-[32px] border border-gray-100 relative">
                 <button onClick={() => setQuestions(questions.filter((_, i) => i !== qIdx))} className="absolute top-6 right-6 text-red-500"><X size={18} /></button>
