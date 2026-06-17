@@ -17,12 +17,19 @@ function getAdmin() {
   if (firebaseAdmin) return firebaseAdmin;
   try {
     const adminModule = require('firebase-admin');
-    const b64 = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
-    if (!b64) {
-      console.warn('⚠️  FIREBASE_SERVICE_ACCOUNT_BASE64 not set — Bitrix auto-login disabled');
+    // Accept the service account as raw JSON OR base64-encoded JSON (either env var).
+    const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
+    if (!raw) {
+      console.warn('⚠️  FIREBASE_SERVICE_ACCOUNT_* not set — Bitrix auto-login / migration disabled');
       return null;
     }
-    const serviceAccount = JSON.parse(Buffer.from(b64, 'base64').toString('utf-8'));
+    let serviceAccount: any;
+    const trimmed = raw.trim();
+    if (trimmed.startsWith('{')) {
+      serviceAccount = JSON.parse(trimmed);                                  // raw JSON
+    } else {
+      serviceAccount = JSON.parse(Buffer.from(trimmed, 'base64').toString('utf-8')); // base64
+    }
     if (!adminModule.apps.length) {
       adminModule.initializeApp({ credential: adminModule.credential.cert(serviceAccount) });
     }
