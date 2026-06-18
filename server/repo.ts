@@ -74,7 +74,16 @@ export async function createCourse(course: any): Promise<string> {
     `INSERT INTO courses (id, title, description, category, thumbnail, is_public, hidden_from_users,
        type, file_url, has_simulator, simulator_mode, simulator_turns, test_mode, test_config,
        assigned_to_users, assigned_to_departments)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb,$16::jsonb)`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb,$16::jsonb)
+     ON CONFLICT (id) DO UPDATE SET
+       title = EXCLUDED.title, description = EXCLUDED.description, category = EXCLUDED.category,
+       thumbnail = EXCLUDED.thumbnail, is_public = EXCLUDED.is_public,
+       hidden_from_users = EXCLUDED.hidden_from_users, type = EXCLUDED.type,
+       file_url = EXCLUDED.file_url, has_simulator = EXCLUDED.has_simulator,
+       simulator_mode = EXCLUDED.simulator_mode, simulator_turns = EXCLUDED.simulator_turns,
+       test_mode = EXCLUDED.test_mode, test_config = EXCLUDED.test_config,
+       assigned_to_users = EXCLUDED.assigned_to_users,
+       assigned_to_departments = EXCLUDED.assigned_to_departments`,
     [id, course.title || '', course.description || '', course.category || '', course.thumbnail || '',
      !!course.isPublic, !!course.hiddenFromUsers, course.type || null, course.fileUrl || null,
      course.hasSimulator ?? null, course.simulatorMode || null, course.simulatorTurns ?? null,
@@ -119,7 +128,10 @@ export async function getGlossary(): Promise<any[]> {
 }
 export async function addGlossaryTerm(t: any): Promise<string> {
   const id = t.id || genId('gl_');
-  await query('INSERT INTO glossary (id, term, definition, category) VALUES ($1,$2,$3,$4)',
+  await query(
+    `INSERT INTO glossary (id, term, definition, category) VALUES ($1,$2,$3,$4)
+     ON CONFLICT (id) DO UPDATE SET
+       term=EXCLUDED.term, definition=EXCLUDED.definition, category=EXCLUDED.category`,
     [id, t.term || '', t.definition || '', t.category || '']);
   return id;
 }
@@ -332,10 +344,11 @@ export async function saveAISettings(s: any): Promise<void> {
 
 // ── Simulator sessions ───────────────────────────────────────────────────────
 export async function saveSimulatorSession(s: any): Promise<string> {
-  const id = genId('sim_');
+  const id = s.id || genId('sim_');
   await query(
     `INSERT INTO simulator_sessions (id, user_id, course_id, lesson_id, score, feedback, chat_history)
-     VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)
+     ON CONFLICT (id) DO NOTHING`,
     [id, s.userId, s.courseId || null, s.lessonId || null, s.score ?? 0, s.feedback || '', j(s.chatHistory || [])]
   );
   return id;

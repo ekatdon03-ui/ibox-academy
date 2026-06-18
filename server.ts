@@ -408,7 +408,7 @@ async function startServer() {
     // Simulator sessions
     n = 0;
     for (const d of await getAll('simulator_sessions')) {
-      const s: any = d.data();
+      const s: any = { id: d.id, ...d.data() };
       if (s.userId) { await repo.saveSimulatorSession(s); n++; }
     }
     stats.simulator_sessions = n;
