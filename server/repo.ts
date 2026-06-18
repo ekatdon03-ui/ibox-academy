@@ -10,6 +10,13 @@ export function genId(prefix = ''): string {
 
 const j = (v: any) => JSON.stringify(v ?? null);
 
+// Coerce to a finite integer or a default (NaN/""/garbage -> default).
+// `?? 0` does NOT catch NaN, which Postgres rejects for integer columns.
+function intOr<T extends number | null>(v: any, def: T): number | T {
+  const n = typeof v === 'number' ? v : parseInt(v, 10);
+  return Number.isFinite(n) ? Math.trunc(n) : def;
+}
+
 // ── Courses (+ nested lessons) ───────────────────────────────────────────────
 function rowToCourse(r: any, lessons: any[]): any {
   return {
@@ -95,7 +102,7 @@ export async function createCourse(course: any): Promise<string> {
        assigned_to_departments = EXCLUDED.assigned_to_departments`,
     [id, course.title || '', course.description || '', course.category || '', course.thumbnail || '',
      !!course.isPublic, !!course.hiddenFromUsers, course.type || null, course.fileUrl || null,
-     course.hasSimulator ?? null, course.simulatorMode || null, course.simulatorTurns ?? null,
+     course.hasSimulator ?? null, course.simulatorMode || null, intOr(course.simulatorTurns, null),
      course.testMode || null, j(course.testConfig || { type: 'none', questions: [] }),
      j(course.assignedToUsers || []), j(course.assignedToDepartments || [])]
   );
@@ -163,7 +170,7 @@ export async function saveResult(r: any): Promise<void> {
        progress = GREATEST(results.progress, EXCLUDED.progress),
        tutor_rating = COALESCE(EXCLUDED.tutor_rating, results.tutor_rating),
        created_at = now()`,
-    [r.userId, r.courseId, r.score ?? 0, r.progress ?? 0, r.tutorRating ?? null]
+    [r.userId, r.courseId, intOr(r.score, 0), intOr(r.progress, 0), intOr(r.tutorRating, null)]
   );
 }
 function rowToResult(r: any): any {
@@ -323,7 +330,7 @@ export async function saveProgressRaw(p: any): Promise<void> {
        status=EXCLUDED.status, lessons=EXCLUDED.lessons,
        overall_progress=EXCLUDED.overall_progress, last_updated=EXCLUDED.last_updated`,
     [p.userId, p.courseId, p.status || 'in-progress', j(p.lessons || []),
-     p.overallProgress ?? 0, p.lastUpdated ? new Date(p.lastUpdated) : null]
+     intOr(p.overallProgress, 0), p.lastUpdated ? new Date(p.lastUpdated) : null]
   );
 }
 
@@ -358,7 +365,7 @@ export async function saveSimulatorSession(s: any): Promise<string> {
     `INSERT INTO simulator_sessions (id, user_id, course_id, lesson_id, score, feedback, chat_history)
      VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)
      ON CONFLICT (id) DO NOTHING`,
-    [id, s.userId, s.courseId || null, s.lessonId || null, s.score ?? 0, s.feedback || '', j(s.chatHistory || [])]
+    [id, s.userId, s.courseId || null, s.lessonId || null, intOr(s.score, 0), s.feedback || '', j(s.chatHistory || [])]
   );
   return id;
 }
