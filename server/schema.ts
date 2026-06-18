@@ -33,16 +33,35 @@ CREATE TABLE IF NOT EXISTS courses (
 );
 
 CREATE TABLE IF NOT EXISTS lessons (
-  id TEXT PRIMARY KEY,
+  id TEXT NOT NULL,
   course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
   position INTEGER NOT NULL DEFAULT 0,
   title TEXT NOT NULL DEFAULT '',
   content TEXT NOT NULL DEFAULT '',
   file_urls JSONB DEFAULT '[]'::jsonb,
   ai_knowledge TEXT,
-  test_config JSONB
+  test_config JSONB,
+  PRIMARY KEY (course_id, id)
 );
 CREATE INDEX IF NOT EXISTS idx_lessons_course ON lessons(course_id);
+
+-- Migrate older installs where lessons PK was (id) alone (globally unique).
+-- Lessons are scoped to a course, so the correct key is (course_id, id);
+-- a global id PK breaks when lesson ids repeat across courses.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint c
+    JOIN pg_class t ON t.oid = c.conrelid
+    WHERE t.relname = 'lessons' AND c.contype = 'p'
+      AND array_length(c.conkey, 1) = 1
+  ) THEN
+    ALTER TABLE lessons DROP CONSTRAINT lessons_pkey;
+    DELETE FROM lessons a USING lessons b
+      WHERE a.ctid < b.ctid AND a.course_id = b.course_id AND a.id = b.id;
+    ALTER TABLE lessons ADD CONSTRAINT lessons_pkey PRIMARY KEY (course_id, id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,

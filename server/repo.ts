@@ -55,13 +55,22 @@ export async function getAllCourses(): Promise<any[]> {
 
 async function writeLessons(courseId: string, lessons: any[] = []) {
   await query('DELETE FROM lessons WHERE course_id = $1', [courseId]);
+  const seen = new Set<string>();
   for (let i = 0; i < lessons.length; i++) {
     const l = lessons[i];
-    const id = l.id || genId('lesson_');
+    // Lesson id must be unique within the course. Fall back to a stable
+    // position id, and disambiguate any in-array duplicates.
+    let id = l.id || `${i}`;
+    while (seen.has(id)) id = `${id}_${i}`;
+    seen.add(id);
     const fileUrls = l.fileUrls?.length ? l.fileUrls : (l.fileUrl ? [l.fileUrl] : []);
     await query(
       `INSERT INTO lessons (id, course_id, position, title, content, file_urls, ai_knowledge, test_config)
-       VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8::jsonb)`,
+       VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8::jsonb)
+       ON CONFLICT (course_id, id) DO UPDATE SET
+         position = EXCLUDED.position, title = EXCLUDED.title, content = EXCLUDED.content,
+         file_urls = EXCLUDED.file_urls, ai_knowledge = EXCLUDED.ai_knowledge,
+         test_config = EXCLUDED.test_config`,
       [id, courseId, i, l.title || '', l.content || '', j(fileUrls), l.aiKnowledge || null,
        l.testConfig ? j(l.testConfig) : null]
     );
