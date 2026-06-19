@@ -7,7 +7,7 @@ import { spawn } from 'child_process';
 import { createServer as createViteServer } from 'vite';
 import { initSchema, dbConfigured, query as pgQuery } from './server/db';
 import * as repo from './server/repo';
-import { uploadToS3, s3Configured } from './server/s3';
+import { uploadToS3, s3Configured, presignUpload, ensureBucketCors } from './server/s3';
 import { signToken, requireAdmin, isAdminClaims, verifyToken, ADMIN_UIDS, ADMIN_EMAILS } from './server/auth';
 import { parseMoodleXml } from './server/moodle';
 
@@ -77,6 +77,9 @@ async function startServer() {
 
   // Bootstrap PostgreSQL schema (no-op if DB env not set yet)
   await initSchema().catch((e) => console.error('[startup] schema init error:', e.message));
+
+  // Enable direct browser→S3 uploads (best-effort; falls back to proxy if it fails)
+  ensureBucketCors().catch((e) => console.error('[startup] s3 cors error:', e.message));
 
   // ─────────────────────────────────────────────────────────────────────
   // BITRIX24 AUTO-LOGIN
@@ -177,7 +180,15 @@ async function startServer() {
     next();
   };
 
-  // ── File upload → S3 ──────────────────────────────────────────────────
+  // ── Presigned URL: browser uploads straight to S3 (fast path) ──────────
+  app.post('/api/upload-url', requireAdmin, wrap(async (req, res) => {
+    if (!s3Configured()) return res.status(503).json({ error: 'S3 не настроен на сервере' });
+    const { name, contentType } = req.body || {};
+    const signed = await presignUpload(name || 'file', contentType || '');
+    res.json(signed);
+  }));
+
+  // ── File upload → S3 (server proxy, fallback path) ─────────────────────
   app.post('/api/upload', requireAdmin, upload.single('file'), wrap(async (req, res) => {
     if (!s3Configured()) return res.status(503).json({ error: 'S3 не настроен на сервере' });
     if (!req.file) return res.status(400).json({ error: 'file required' });

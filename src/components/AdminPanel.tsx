@@ -4,7 +4,7 @@ import {
   Plus, ListChecks, FileText, Users,
   BarChart3, Settings, Upload, Check, Zap,
   X, HelpCircle, Save, Play, Shield, Eye, EyeOff,
-  Link as LinkIcon, RefreshCw
+  Link as LinkIcon, RefreshCw, Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Course, GlossaryTerm, UserProfile, TestConfig, QuizQuestion, Lesson } from '../types';
@@ -164,6 +164,38 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
   const showToast = (message: string, isError = false) => {
     setToast({ message, isError });
     setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleDeleteCourse = (course: Course) => {
+    setPendingAction({
+      message: `Удалить курс «${course.title}» полностью? Уроки, тесты и прогресс по нему будут удалены безвозвратно.`,
+      confirmLabel: 'Удалить',
+      action: async () => {
+        try {
+          await contentService.deleteCourse(course.id);
+          onUpdateCourses(courses.filter(c => c.id !== course.id));
+          showToast('Курс удалён');
+        } catch (e: any) {
+          showToast('Ошибка удаления курса: ' + (e?.message || ''), true);
+        }
+      },
+    });
+  };
+
+  const handleDeleteTerm = (term: GlossaryTerm) => {
+    setPendingAction({
+      message: `Удалить термин «${term.term}»?`,
+      confirmLabel: 'Удалить',
+      action: async () => {
+        try {
+          await contentService.deleteGlossaryTerm(term.id!);
+          setGlossary(prev => prev.filter(t => t.id !== term.id));
+          showToast('Термин удалён');
+        } catch (e: any) {
+          showToast('Ошибка удаления термина: ' + (e?.message || ''), true);
+        }
+      },
+    });
   };
 
   const handleViewUserHistory = async (user: UserProfile) => {
@@ -358,6 +390,13 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
                             >
                               <ListChecks size={15} />
                             </button>
+                            <button
+                             onClick={() => handleDeleteCourse(course)}
+                             className="w-9 h-9 bg-white/90 backdrop-blur rounded-xl flex items-center justify-center text-red-500 hover:bg-red-500 hover:text-white transition-all shadow-sm"
+                             title="Удалить курс"
+                            >
+                              <Trash2 size={15} />
+                            </button>
                         </div>
                       </div>
                       <h3 className="text-xl font-display font-black uppercase mb-2 tracking-tight line-clamp-1">{course.title}</h3>
@@ -458,6 +497,13 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
                             className="p-3 text-[#00A3FF] hover:bg-[#002D57]/5 rounded-xl transition-all font-display font-black text-[10px] uppercase tracking-widest"
                           >
                             Ред.
+                          </button>
+                          <button
+                            onClick={() => handleDeleteTerm(t)}
+                            title="Удалить термин"
+                            className="p-3 text-red-500 hover:bg-red-500/10 rounded-xl transition-all"
+                          >
+                            <Trash2 size={15} />
                           </button>
                         </div>
                     </div>
@@ -1185,6 +1231,7 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
 
   // Tracks which slot is uploading: a lesson index, 'course', or null
   const [uploadingIdx, setUploadingIdx] = useState<number | 'course' | null>(null);
+  const [uploadPct, setUploadPct] = useState(0);
 
   // Uploads the file directly to our S3 storage and stores the returned URL.
   // No 1 MB limit anymore — files live in object storage, not the database.
@@ -1201,8 +1248,9 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
 
     const slot: number | 'course' = lessonIdx !== undefined ? lessonIdx : 'course';
     setUploadingIdx(slot);
+    setUploadPct(0);
     try {
-      const { url } = await contentService.uploadFile(file);
+      const { url } = await contentService.uploadFile(file, (f) => setUploadPct(Math.round(f * 100)));
       if (lessonIdx !== undefined) {
         setLessons(prev => {
           const n = [...prev];
@@ -1219,6 +1267,7 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
       showFormToast('Ошибка загрузки файла: ' + (err?.message || 'неизвестная ошибка'), true);
     } finally {
       setUploadingIdx(null);
+      setUploadPct(0);
     }
   };
 
@@ -1483,7 +1532,7 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
                   >
                     <div className="flex flex-col">
                       <span className="font-bold text-[10px] text-gray-500 uppercase">
-                        {uploadingIdx === 'course' ? 'Загрузка…' : (fileUrl ? 'Файл загружен' : 'Загрузить файл')}
+                        {uploadingIdx === 'course' ? `Загрузка… ${uploadPct}%` : (fileUrl ? 'Файл загружен' : 'Загрузить файл')}
                       </span>
                       <span className="text-[8px] text-gray-400 font-bold uppercase tracking-tighter">Видео, PDF, презентации — без ограничений</span>
                     </div>
@@ -1706,7 +1755,7 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
                                     onChange={(e) => handleFileUpload(e, idx)}
                                   />
                                   <div className="w-full bg-[#F5F7FA] rounded-2xl px-5 py-3 text-[10px] font-bold text-gray-400 border-2 border-dashed border-gray-200 text-center truncate">
-                                    {uploadingIdx === idx ? 'Загрузка…' : 'Выбрать файл'}
+                                    {uploadingIdx === idx ? `Загрузка… ${uploadPct}%` : 'Выбрать файл'}
                                   </div>
                                 </div>
                                 <button

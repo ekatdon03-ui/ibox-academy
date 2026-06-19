@@ -21,6 +21,29 @@ const safe = async <T>(p: Promise<T>, fallback: T): Promise<T> => {
   try { return await p; } catch (e) { console.warn('[contentService]', (e as Error).message); return fallback; }
 };
 
+// PUT a file directly to a presigned S3 URL with upload progress.
+function putToS3(
+  uploadUrl: string,
+  file: File,
+  contentType: string,
+  acl: string | undefined,
+  onProgress?: (fraction: number) => void
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', uploadUrl);
+    xhr.setRequestHeader('Content-Type', contentType);
+    if (acl) xhr.setRequestHeader('x-amz-acl', acl);
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress?.(e.loaded / e.total); };
+    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300)
+      ? resolve()
+      : reject(new Error(`S3 ${xhr.status}: ${xhr.responseText?.slice(0, 200) || ''}`));
+    xhr.onerror = () => reject(new Error('network error during S3 upload'));
+    xhr.ontimeout = () => reject(new Error('S3 upload timed out'));
+    xhr.send(file);
+  });
+}
+
 export const contentService = {
   // ── Simulator sessions ──────────────────────────────────────────────────
   async saveSimulatorSession(session: any) {
@@ -177,10 +200,29 @@ export const contentService = {
   },
 
   // ── File upload (→ S3) ──────────────────────────────────────────────────
-  async uploadFile(file: File): Promise<{ url: string; name: string; size: number; contentType: string }> {
+  // Fast path: ask the server for a presigned URL and PUT the file straight to
+  // S3 (browser → S3, one hop, with progress). If that fails for any reason
+  // (CORS, network), fall back to the server proxy (browser → server → S3).
+  async uploadFile(
+    file: File,
+    onProgress?: (fraction: number) => void
+  ): Promise<{ url: string; name: string; size: number; contentType: string }> {
+    const contentType = file.type || 'application/octet-stream';
+    try {
+      const signed = await api.post<{ uploadUrl: string; publicUrl: string; contentType: string; acl: string }>(
+        '/api/upload-url', { name: file.name, contentType }
+      );
+      await putToS3(signed.uploadUrl, file, contentType, signed.acl, onProgress);
+      return { url: signed.publicUrl, name: file.name, size: file.size, contentType };
+    } catch (e) {
+      console.warn('[contentService] direct S3 upload failed, using server proxy:', (e as Error).message);
+    }
+    // Fallback: server proxy
     const form = new FormData();
     form.append('file', file);
-    return api.upload('/api/upload', form);
+    const r = await api.upload<{ url: string; name: string; size: number; contentType: string }>('/api/upload', form);
+    onProgress?.(1);
+    return r;
   },
 
   // ── Question banks (Moodle XML) ─────────────────────────────────────────

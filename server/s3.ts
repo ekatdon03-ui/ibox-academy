@@ -9,7 +9,8 @@
 //   S3_SECRET_KEY    secret access key
 //   S3_PUBLIC_BASE   optional override for the public file URL base
 // ─────────────────────────────────────────────────────────────────────────────
-import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectCommand, PutBucketCorsCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 let client: S3Client | null = null;
 
@@ -50,6 +51,61 @@ function safeName(name: string): string {
     .replace(/[^\w.\-]+/g, '_')
     .replace(/_+/g, '_')
     .slice(-120);
+}
+
+function newKey(originalName: string): string {
+  return `uploads/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${safeName(originalName)}`;
+}
+
+/**
+ * Create a presigned PUT URL so the browser can upload the file straight to S3
+ * (browser → S3, one hop) instead of proxying through our server
+ * (browser → Render → S3). Much faster and far more reliable for big PDFs.
+ * The client must PUT with the same Content-Type and the x-amz-acl header.
+ */
+export async function presignUpload(
+  originalName: string,
+  contentType: string
+): Promise<{ uploadUrl: string; publicUrl: string; contentType: string; acl: string }> {
+  const bucket = process.env.S3_BUCKET!;
+  const key = newKey(originalName);
+  const ct = contentType || 'application/octet-stream';
+  const cmd = new PutObjectCommand({
+    Bucket: bucket,
+    Key: key,
+    ContentType: ct,
+    ACL: 'public-read',
+  });
+  const uploadUrl = await getSignedUrl(getClient(), cmd, { expiresIn: 3600 });
+  return { uploadUrl, publicUrl: publicUrl(key), contentType: ct, acl: 'public-read' };
+}
+
+/**
+ * Allow the browser to PUT directly to the bucket from any origin. Presigned
+ * URLs already require a valid signature, so '*' here is safe. Best-effort:
+ * if the provider rejects it, direct upload falls back to the server proxy.
+ */
+let corsEnsured = false;
+export async function ensureBucketCors(): Promise<void> {
+  if (corsEnsured || !s3Configured()) return;
+  try {
+    await getClient().send(new PutBucketCorsCommand({
+      Bucket: process.env.S3_BUCKET!,
+      CORSConfiguration: {
+        CORSRules: [{
+          AllowedMethods: ['PUT', 'GET', 'HEAD'],
+          AllowedOrigins: ['*'],
+          AllowedHeaders: ['*'],
+          ExposeHeaders: ['ETag'],
+          MaxAgeSeconds: 3600,
+        }],
+      },
+    }));
+    corsEnsured = true;
+    console.log('[s3] bucket CORS ensured (direct browser upload enabled)');
+  } catch (e: any) {
+    console.warn('[s3] could not set bucket CORS — direct upload may fall back to proxy:', e.message);
+  }
 }
 
 /** Upload a buffer to S3 and return the public URL. */
