@@ -1215,6 +1215,7 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
   const [lessons, setLessons] = useState<Lesson[]>(initialData?.lessons || []);
   const [courseType, setCourseType] = useState<'presentation' | 'video' | 'scorm'>(initialData?.type || 'presentation');
   const [fileUrl, setFileUrl] = useState(initialData?.fileUrl || '');
+  const [scormPackageId, setScormPackageId] = useState(initialData?.scormPackageId || '');
   const [isPublic, setIsPublic] = useState(initialData?.isPublic || false);
   // Per-lesson "new link" input state (keyed by lesson index)
   const [newLessonLinks, setNewLessonLinks] = useState<Record<number, string>>({});
@@ -1250,6 +1251,26 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
     setUploadingIdx(slot);
     setUploadPct(0);
     try {
+      // SCORM archives are auto-detected and imported as SCORM (not stored as a raw file).
+      const isArchive = /\.(zip|tar\.gz|tgz|tar)$/i.test(file.name);
+      if (isArchive) {
+        try {
+          const pkg = await contentService.importScorm(file, title || file.name, (f) => setUploadPct(Math.round(f * 100)));
+          if (lessonIdx !== undefined) {
+            setLessons(prev => { const n = [...prev]; n[lessonIdx] = { ...n[lessonIdx], scormPackageId: pkg.id }; return n; });
+          } else {
+            setScormPackageId(pkg.id);
+            setFileUrl('');
+          }
+          showFormToast(`SCORM загружен: ${pkg.title} (SCORM ${pkg.version}, файлов: ${pkg.fileCount}).`);
+          return;
+        } catch (scormErr: any) {
+          // Not a SCORM archive — fall through and store it as a regular file.
+          console.warn('[scorm] not a SCORM package, uploading as file:', scormErr?.message);
+        }
+      }
+
+      setUploadPct(0);
       const { url } = await contentService.uploadFile(file, (f) => setUploadPct(Math.round(f * 100)));
       if (lessonIdx !== undefined) {
         setLessons(prev => {
@@ -1457,8 +1478,9 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
         description,
         category,
         lessons: finalLessons,
-        type: courseType,
+        type: scormPackageId ? 'scorm' : courseType,
         fileUrl,
+        scormPackageId: scormPackageId || undefined,
         isPublic,
         hasSimulator: (initialData?.simulatorMode ?? initialData?.hasSimulator) !== false && (initialData?.simulatorMode ?? 'optional') !== 'off',
         simulatorMode: initialData?.simulatorMode ?? (initialData?.hasSimulator === false ? 'off' : 'optional'),
@@ -1554,6 +1576,21 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
 
             <div className="space-y-4">
               <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-4">Медиа-ресурс курса (PDF, MP4, SCORM или Ссылка)</label>
+              {scormPackageId && (
+                <div className="flex items-center justify-between bg-[#00A3FF]/10 rounded-2xl px-6 py-4 border border-[#00A3FF]/20">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-[#002D57] flex items-center gap-2">
+                    <Check size={14} strokeWidth={3} /> SCORM-пакет подключён — курс откроется как интерактив
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setScormPackageId('')}
+                    className="text-red-500 hover:bg-red-500/10 rounded-lg p-2 transition-all"
+                    title="Убрать SCORM"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="relative group">
                   <input 

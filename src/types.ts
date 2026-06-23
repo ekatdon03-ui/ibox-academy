@@ -39,6 +39,7 @@ export interface Course {
   testConfig: TestConfig;
   isPublic?: boolean;
   fileUrl?: string;
+  scormPackageId?: string; // When set, the course plays this SCORM package
   type?: 'presentation' | 'video' | 'scorm';
   hiddenFromUsers?: boolean;
   assignedToUsers?: string[];

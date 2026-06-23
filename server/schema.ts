@@ -165,4 +165,6 @@ CREATE TABLE IF NOT EXISTS scorm_runtime (
 
 -- Link a lesson to a SCORM package (lesson plays the package instead of media).
 ALTER TABLE lessons ADD COLUMN IF NOT EXISTS scorm_package_id TEXT;
+-- Link a whole course to a SCORM package (course media is the package).
+ALTER TABLE courses ADD COLUMN IF NOT EXISTS scorm_package_id TEXT;
 `;

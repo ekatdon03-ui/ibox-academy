@@ -205,7 +205,12 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
 
   const showQuiz = quizType !== null;
   const testMode = course.testMode ?? 'final';
-  const lessons = course.lessons || [];
+  // A course-level SCORM package with no manual lessons becomes a single SCORM lesson.
+  const lessons = (course.lessons && course.lessons.length > 0)
+    ? course.lessons
+    : (course.scormPackageId
+        ? [{ id: 'scorm-main', title: course.title || 'Курс', content: '', scormPackageId: course.scormPackageId }]
+        : []);
   const usesBank = !!course.testConfig?.questionBankId;
   const hasFinalQuiz = (testMode === 'final' || testMode === 'both') &&
     ((course.testConfig?.questions?.length ?? 0) > 0 || usesBank);

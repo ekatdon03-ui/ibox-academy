@@ -36,6 +36,7 @@ function rowToCourse(r: any, lessons: any[]): any {
     testConfig: r.test_config || { type: 'none', questions: [] },
     assignedToUsers: r.assigned_to_users || [],
     assignedToDepartments: r.assigned_to_departments || [],
+    scormPackageId: r.scorm_package_id || undefined,
     lessons,
   };
 }
@@ -90,8 +91,8 @@ export async function createCourse(course: any): Promise<string> {
   await query(
     `INSERT INTO courses (id, title, description, category, thumbnail, is_public, hidden_from_users,
        type, file_url, has_simulator, simulator_mode, simulator_turns, test_mode, test_config,
-       assigned_to_users, assigned_to_departments)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb,$16::jsonb)
+       assigned_to_users, assigned_to_departments, scorm_package_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb,$16::jsonb,$17)
      ON CONFLICT (id) DO UPDATE SET
        title = EXCLUDED.title, description = EXCLUDED.description, category = EXCLUDED.category,
        thumbnail = EXCLUDED.thumbnail, is_public = EXCLUDED.is_public,
@@ -100,12 +101,13 @@ export async function createCourse(course: any): Promise<string> {
        simulator_mode = EXCLUDED.simulator_mode, simulator_turns = EXCLUDED.simulator_turns,
        test_mode = EXCLUDED.test_mode, test_config = EXCLUDED.test_config,
        assigned_to_users = EXCLUDED.assigned_to_users,
-       assigned_to_departments = EXCLUDED.assigned_to_departments`,
+       assigned_to_departments = EXCLUDED.assigned_to_departments,
+       scorm_package_id = EXCLUDED.scorm_package_id`,
     [id, course.title || '', course.description || '', course.category || '', course.thumbnail || '',
      !!course.isPublic, !!course.hiddenFromUsers, course.type || null, course.fileUrl || null,
      course.hasSimulator ?? null, course.simulatorMode || null, intOr(course.simulatorTurns, null),
      course.testMode || null, j(course.testConfig || { type: 'none', questions: [] }),
-     j(course.assignedToUsers || []), j(course.assignedToDepartments || [])]
+     j(course.assignedToUsers || []), j(course.assignedToDepartments || []), course.scormPackageId || null]
   );
   await writeLessons(id, course.lessons || []);
   return id;
@@ -116,7 +118,7 @@ export async function updateCourse(id: string, u: any): Promise<void> {
     title: 'title', description: 'description', category: 'category', thumbnail: 'thumbnail',
     isPublic: 'is_public', hiddenFromUsers: 'hidden_from_users', type: 'type', fileUrl: 'file_url',
     hasSimulator: 'has_simulator', simulatorMode: 'simulator_mode', simulatorTurns: 'simulator_turns',
-    testMode: 'test_mode',
+    testMode: 'test_mode', scormPackageId: 'scorm_package_id',
   };
   const sets: string[] = [];
   const vals: any[] = [];
