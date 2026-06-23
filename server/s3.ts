@@ -160,15 +160,20 @@ export async function uploadBufferToKey(key: string, buffer: Buffer, contentType
   }));
 }
 
-/** Fetch an object as a stream (used to proxy SCORM content from our origin). */
+/** Fetch an object as a stream (used to proxy SCORM content from our origin).
+ *  Supports HTTP Range so video/audio inside a package can seek. */
 export async function getObjectStream(
-  key: string
-): Promise<{ stream: Readable; contentType?: string; contentLength?: number }> {
-  const out = await getClient().send(new GetObjectCommand({ Bucket: process.env.S3_BUCKET!, Key: key }));
+  key: string,
+  range?: string
+): Promise<{ stream: Readable; contentType?: string; contentLength?: number; contentRange?: string }> {
+  const out = await getClient().send(new GetObjectCommand({
+    Bucket: process.env.S3_BUCKET!, Key: key, Range: range || undefined,
+  }));
   return {
     stream: out.Body as Readable,
     contentType: out.ContentType,
     contentLength: out.ContentLength,
+    contentRange: out.ContentRange,
   };
 }
 

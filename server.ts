@@ -285,13 +285,17 @@ async function startServer() {
   app.get('/api/scorm/:id/content/*', wrap(async (req, res) => {
     const p = await repo.getScormPackage(req.params.id);
     if (!p) return res.status(404).end();
-    const rel = (req.params[0] || '').replace(/\.\.+/g, '').replace(/^\/+/, ''); // no path traversal
+    const rel = (req.params[0] || '') // Express already URL-decodes wildcard params
+      .replace(/\.\.+/g, '').replace(/^\/+/, ''); // no path traversal
     const key = `${p.s3Prefix}${rel}`;
     try {
-      const obj = await getObjectStream(key);
+      const obj = await getObjectStream(key, req.headers.range as string | undefined);
       if (obj.contentType) res.setHeader('Content-Type', obj.contentType);
-      if (obj.contentLength != null) res.setHeader('Content-Length', String(obj.contentLength));
+      res.setHeader('Accept-Ranges', 'bytes');
       res.setHeader('Cache-Control', 'public, max-age=3600');
+      if (obj.contentRange) { res.status(206); res.setHeader('Content-Range', obj.contentRange); }
+      if (obj.contentLength != null) res.setHeader('Content-Length', String(obj.contentLength));
+      obj.stream.on('error', () => { if (!res.headersSent) res.status(500); res.end(); });
       obj.stream.pipe(res);
     } catch (e: any) {
       res.status(404).json({ error: 'file not found in package' });

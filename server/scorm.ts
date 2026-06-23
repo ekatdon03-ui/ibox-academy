@@ -119,6 +119,8 @@ export async function importScormZip(zipBuffer: Buffer, titleHint?: string): Pro
   let fileCount = 0;
   for (const e of entries) {
     if (e.isDirectory) continue;
+    // Skip macOS archive junk that adds no value and can confuse players.
+    if (/(^|\/)__MACOSX\//.test(e.entryName) || /(^|\/)\.DS_Store$/.test(e.entryName)) continue;
     // Strip the manifest's root folder so paths are relative to the launch file.
     let rel = e.entryName;
     if (rootPrefix && rel.startsWith(rootPrefix)) rel = rel.slice(rootPrefix.length);
@@ -127,6 +129,7 @@ export async function importScormZip(zipBuffer: Buffer, titleHint?: string): Pro
     await uploadBufferToKey(key, e.getData(), contentTypeFor(rel));
     fileCount++;
   }
+  if (fileCount === 0) throw new Error('SCORM-пакет пустой или повреждён');
 
   return {
     id,

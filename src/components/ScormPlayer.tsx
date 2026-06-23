@@ -77,7 +77,6 @@ export default function ScormPlayer({ packageId, user, onComplete }: ScormPlayer
 
       const version = pkg.version;
       const d: Record<string, string> = { ...stored };
-      const has = (k: string) => d[k] !== undefined && d[k] !== '';
 
       // Seed required read-only / default fields the content expects.
       const studentName = user.name || 'Учащийся';
@@ -109,7 +108,6 @@ export default function ScormPlayer({ packageId, user, onComplete }: ScormPlayer
         d['cmi.total_time'] ??= 'PT0H0M0S';
         d['cmi.launch_data'] ??= '';
       }
-      void has;
       dataRef.current = d;
 
       let lastError = '0';
@@ -184,7 +182,8 @@ export default function ScormPlayer({ packageId, user, onComplete }: ScormPlayer
     );
   }
 
-  const src = `/api/scorm/${encodeURIComponent(packageId)}/content/${info.launchHref}`;
+  // encodeURI keeps slashes/query but escapes spaces & non-ASCII in the path.
+  const src = `/api/scorm/${encodeURIComponent(packageId)}/content/${encodeURI(info.launchHref)}`;
   return (
     <iframe
       src={src}
