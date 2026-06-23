@@ -10,7 +10,7 @@ import * as repo from './server/repo';
 import { uploadToS3, s3Configured, presignUpload, ensureBucketCors, getObjectStream, deletePrefix } from './server/s3';
 import { signToken, requireAdmin, requireAuth, isAdminClaims, verifyToken, ADMIN_UIDS, ADMIN_EMAILS } from './server/auth';
 import { parseMoodleXml } from './server/moodle';
-import { importScormZip } from './server/scorm';
+import { importScormArchive } from './server/scorm';
 
 // Firebase Admin — for generating custom tokens (Bitrix auth)
 let firebaseAdmin: any = null;
@@ -268,8 +268,9 @@ async function startServer() {
   // Import a .zip SCORM package: unzip → S3 → store package metadata.
   app.post('/api/scorm/import', requireAdmin, upload.single('file'), wrap(async (req, res) => {
     if (!s3Configured()) return res.status(503).json({ error: 'S3 не настроен на сервере' });
-    if (!req.file) return res.status(400).json({ error: 'file (zip) required' });
-    const result = await importScormZip(req.file.buffer, req.body?.title || req.file.originalname?.replace(/\.zip$/i, ''));
+    if (!req.file) return res.status(400).json({ error: 'file (архив) required' });
+    const title = req.body?.title || req.file.originalname?.replace(/\.(zip|tar\.gz|tgz|tar)$/i, '');
+    const result = await importScormArchive(req.file.buffer, req.file.originalname, title);
     await repo.createScormPackage(result);
     res.json({ id: result.id, title: result.title, version: result.version, launchHref: result.launchHref, fileCount: result.fileCount });
   }));

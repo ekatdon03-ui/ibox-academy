@@ -1278,8 +1278,8 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = '';
-    if (!/\.zip$/i.test(file.name)) {
-      showFormToast('SCORM-пакет должен быть .zip', true);
+    if (!/\.(zip|tar\.gz|tgz|tar)$/i.test(file.name)) {
+      showFormToast('SCORM-пакет должен быть .zip, .tar.gz, .tgz или .tar', true);
       return;
     }
     setScormUploadingIdx(lessonIdx);
@@ -1831,13 +1831,13 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
                                <div className="relative">
                                   <input
                                     type="file"
-                                    accept=".zip"
+                                    accept=".zip,.tar.gz,.tgz,.tar"
                                     id={`lesson-scorm-${idx}`}
                                     className="absolute inset-0 opacity-0 cursor-pointer z-10"
                                     onChange={(e) => handleScormUpload(e, idx)}
                                   />
                                   <div className="w-full bg-[#F5F7FA] rounded-2xl px-5 py-3 text-[10px] font-bold text-gray-400 border-2 border-dashed border-gray-200 text-center truncate">
-                                    {scormUploadingIdx === idx ? `Загрузка SCORM… ${scormPct}%` : 'Загрузить SCORM (.zip)'}
+                                    {scormUploadingIdx === idx ? `Загрузка SCORM… ${scormPct}%` : 'Загрузить SCORM (.zip / .tar.gz)'}
                                   </div>
                                </div>
                              )}
