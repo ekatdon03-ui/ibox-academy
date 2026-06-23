@@ -1271,6 +1271,42 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
     }
   };
 
+  // ── SCORM upload (per lesson) ─────────────────────────────────────────────
+  const [scormUploadingIdx, setScormUploadingIdx] = useState<number | null>(null);
+  const [scormPct, setScormPct] = useState(0);
+  const handleScormUpload = async (e: React.ChangeEvent<HTMLInputElement>, lessonIdx: number) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    if (!/\.zip$/i.test(file.name)) {
+      showFormToast('SCORM-пакет должен быть .zip', true);
+      return;
+    }
+    setScormUploadingIdx(lessonIdx);
+    setScormPct(0);
+    try {
+      const pkg = await contentService.importScorm(file, lessons[lessonIdx]?.title, (f) => setScormPct(Math.round(f * 100)));
+      setLessons(prev => {
+        const n = [...prev];
+        n[lessonIdx] = { ...n[lessonIdx], scormPackageId: pkg.id };
+        return n;
+      });
+      showFormToast(`SCORM загружен: ${pkg.title} (SCORM ${pkg.version}, файлов: ${pkg.fileCount}).`);
+    } catch (err: any) {
+      showFormToast('Ошибка загрузки SCORM: ' + (err?.message || 'неизвестная ошибка'), true);
+    } finally {
+      setScormUploadingIdx(null);
+      setScormPct(0);
+    }
+  };
+  const handleRemoveScorm = (lessonIdx: number) => {
+    setLessons(prev => {
+      const n = [...prev];
+      n[lessonIdx] = { ...n[lessonIdx], scormPackageId: undefined };
+      return n;
+    });
+  };
+
   const [extractingIdx, setExtractingIdx] = useState<number | null>(null);
   const [isExtractingCourse, setIsExtractingCourse] = useState(false);
   const [courseAiKnowledge, setCourseAiKnowledge] = useState('');
@@ -1770,6 +1806,41 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
                                   {extractingIdx === idx ? 'АНАЛИЗ...' : 'ИЗУЧИТЬ ФАЙЛ'}
                                 </button>
                              </div>
+                          </div>
+
+                          {/* Option C: SCORM package */}
+                          <div className="flex flex-col gap-2">
+                             <div className="flex items-center gap-2 text-gray-400">
+                                <Upload size={12} strokeWidth={3} />
+                                <span className="text-[9px] font-black uppercase">SCORM-пакет (.zip) — интерактивный курс</span>
+                             </div>
+                             {lesson.scormPackageId ? (
+                               <div className="flex items-center justify-between bg-[#00A3FF]/10 rounded-2xl px-5 py-3 border border-[#00A3FF]/20">
+                                  <span className="text-[10px] font-black uppercase tracking-widest text-[#002D57] flex items-center gap-2">
+                                    <Check size={13} strokeWidth={3} /> SCORM подключён
+                                  </span>
+                                  <button
+                                    onClick={(e) => { e.preventDefault(); handleRemoveScorm(idx); }}
+                                    className="text-red-500 hover:bg-red-500/10 rounded-lg p-1.5 transition-all"
+                                    title="Убрать SCORM"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                               </div>
+                             ) : (
+                               <div className="relative">
+                                  <input
+                                    type="file"
+                                    accept=".zip"
+                                    id={`lesson-scorm-${idx}`}
+                                    className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                                    onChange={(e) => handleScormUpload(e, idx)}
+                                  />
+                                  <div className="w-full bg-[#F5F7FA] rounded-2xl px-5 py-3 text-[10px] font-bold text-gray-400 border-2 border-dashed border-gray-200 text-center truncate">
+                                    {scormUploadingIdx === idx ? `Загрузка SCORM… ${scormPct}%` : 'Загрузить SCORM (.zip)'}
+                                  </div>
+                               </div>
+                             )}
                           </div>
                         </div>
                       </div>

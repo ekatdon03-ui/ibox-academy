@@ -6,6 +6,14 @@ export interface Lesson {
   fileUrls?: string[]; // multiple media files per lesson (primary field)
   aiKnowledge?: string;
   testConfig?: TestConfig; // Optional per-lesson test shown after the lesson
+  scormPackageId?: string; // When set, the lesson plays this SCORM package
+}
+
+export interface ScormPackageInfo {
+  id: string;
+  title: string;
+  version: '1.2' | '2004';
+  launchHref: string;
 }
 
 export interface QuizQuestion {

@@ -5,6 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import { Course, UserProfile } from '../types';
 import { contentService } from '../services/contentService';
 import { aiService } from '../services/aiService';
+import ScormPlayer from './ScormPlayer';
 
 interface CoursePlayerProps {
   course: Course;
@@ -748,8 +749,26 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
                   {currentLesson.title}
                 </h1>
 
+                {/* SCORM lesson — plays the package full-size via our runtime */}
+                {currentLesson.scormPackageId && !showQuiz && (
+                  <div className="relative mb-5 sm:mb-10 overflow-hidden border-2 border-gray-100 shadow-sm sm:shadow-2xl bg-white rounded-2xl sm:rounded-[32px] h-[78vw] min-h-[320px] sm:h-[72vh] sm:min-h-[480px]">
+                    <ScormPlayer
+                      packageId={currentLesson.scormPackageId}
+                      user={user}
+                      onComplete={(score) => {
+                        if (user.id && course.id && currentLesson) {
+                          contentService.updateLessonProgress(user.id, course.id, currentLesson.id, true, lessons.length).catch(() => {});
+                          if (score != null) {
+                            contentService.saveResult({ userId: user.id, courseId: course.id, score, progress: 100, timestamp: new Date().toISOString() }).catch(() => {});
+                          }
+                        }
+                      }}
+                    />
+                  </div>
+                )}
+
                 {/* Media viewer — supports multiple files per lesson */}
-                {(() => {
+                {!currentLesson.scormPackageId && (() => {
                   const urls = (
                     currentLesson.fileUrls?.length ? currentLesson.fileUrls
                     : currentLesson.fileUrl ? [currentLesson.fileUrl]

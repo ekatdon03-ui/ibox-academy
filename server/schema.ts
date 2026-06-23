@@ -143,4 +143,26 @@ CREATE TABLE IF NOT EXISTS question_banks (
   questions JSONB DEFAULT '[]'::jsonb,
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- SCORM packages (unzipped to S3 under s3_prefix; launch_href is relative to it).
+CREATE TABLE IF NOT EXISTS scorm_packages (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL DEFAULT '',
+  version TEXT NOT NULL DEFAULT '1.2',  -- '1.2' | '2004'
+  launch_href TEXT NOT NULL DEFAULT 'index.html',
+  s3_prefix TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Per-user SCORM runtime state (CMI data model — status, score, suspend_data…).
+CREATE TABLE IF NOT EXISTS scorm_runtime (
+  user_id TEXT NOT NULL,
+  package_id TEXT NOT NULL,
+  cmi JSONB DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  PRIMARY KEY (user_id, package_id)
+);
+
+-- Link a lesson to a SCORM package (lesson plays the package instead of media).
+ALTER TABLE lessons ADD COLUMN IF NOT EXISTS scorm_package_id TEXT;
 `;

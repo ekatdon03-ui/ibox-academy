@@ -49,6 +49,7 @@ function rowToLesson(r: any): any {
     fileUrl: (r.file_urls && r.file_urls[0]) || undefined,
     aiKnowledge: r.ai_knowledge || undefined,
     testConfig: r.test_config || undefined,
+    scormPackageId: r.scorm_package_id || undefined,
   };
 }
 
@@ -72,14 +73,14 @@ async function writeLessons(courseId: string, lessons: any[] = []) {
     seen.add(id);
     const fileUrls = l.fileUrls?.length ? l.fileUrls : (l.fileUrl ? [l.fileUrl] : []);
     await query(
-      `INSERT INTO lessons (id, course_id, position, title, content, file_urls, ai_knowledge, test_config)
-       VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8::jsonb)
+      `INSERT INTO lessons (id, course_id, position, title, content, file_urls, ai_knowledge, test_config, scorm_package_id)
+       VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8::jsonb,$9)
        ON CONFLICT (course_id, id) DO UPDATE SET
          position = EXCLUDED.position, title = EXCLUDED.title, content = EXCLUDED.content,
          file_urls = EXCLUDED.file_urls, ai_knowledge = EXCLUDED.ai_knowledge,
-         test_config = EXCLUDED.test_config`,
+         test_config = EXCLUDED.test_config, scorm_package_id = EXCLUDED.scorm_package_id`,
       [id, courseId, i, l.title || '', l.content || '', j(fileUrls), l.aiKnowledge || null,
-       l.testConfig ? j(l.testConfig) : null]
+       l.testConfig ? j(l.testConfig) : null, l.scormPackageId || null]
     );
   }
 }
@@ -396,4 +397,39 @@ export async function getQuestionBank(id: string): Promise<any | null> {
 }
 export async function deleteQuestionBank(id: string): Promise<void> {
   await query('DELETE FROM question_banks WHERE id=$1', [id]);
+}
+
+// ── SCORM packages + per-user runtime ────────────────────────────────────────
+function rowToScormPackage(r: any): any {
+  return { id: r.id, title: r.title, version: r.version, launchHref: r.launch_href, s3Prefix: r.s3_prefix };
+}
+export async function createScormPackage(p: any): Promise<void> {
+  await query(
+    `INSERT INTO scorm_packages (id, title, version, launch_href, s3_prefix)
+     VALUES ($1,$2,$3,$4,$5)
+     ON CONFLICT (id) DO UPDATE SET
+       title=EXCLUDED.title, version=EXCLUDED.version,
+       launch_href=EXCLUDED.launch_href, s3_prefix=EXCLUDED.s3_prefix`,
+    [p.id, p.title || 'SCORM-курс', p.version || '1.2', p.launchHref || 'index.html', p.s3Prefix || '']
+  );
+}
+export async function getScormPackage(id: string): Promise<any | null> {
+  const rows = (await query('SELECT * FROM scorm_packages WHERE id=$1', [id])).rows;
+  return rows[0] ? rowToScormPackage(rows[0]) : null;
+}
+export async function deleteScormPackage(id: string): Promise<void> {
+  await query('DELETE FROM scorm_packages WHERE id=$1', [id]);
+  await query('DELETE FROM scorm_runtime WHERE package_id=$1', [id]);
+}
+export async function getScormRuntime(userId: string, packageId: string): Promise<any> {
+  const rows = (await query('SELECT cmi FROM scorm_runtime WHERE user_id=$1 AND package_id=$2', [userId, packageId])).rows;
+  return rows[0]?.cmi || {};
+}
+export async function saveScormRuntime(userId: string, packageId: string, cmi: any): Promise<void> {
+  await query(
+    `INSERT INTO scorm_runtime (user_id, package_id, cmi, updated_at)
+     VALUES ($1,$2,$3::jsonb, now())
+     ON CONFLICT (user_id, package_id) DO UPDATE SET cmi=EXCLUDED.cmi, updated_at=now()`,
+    [userId, packageId, j(cmi || {})]
+  );
 }

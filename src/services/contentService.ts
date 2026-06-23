@@ -2,7 +2,7 @@
 // Content service — talks to our PostgreSQL-backed REST API (was Firestore).
 // Method names/signatures are kept identical so components need no changes.
 // ─────────────────────────────────────────────────────────────────────────────
-import { api } from './api';
+import { api, authToken } from './api';
 import { Course, CourseResult, UserProfile, GlossaryTerm, UserCourseProgress } from '../types';
 
 export interface AISettings {
@@ -20,6 +20,28 @@ export interface QuestionBankInfo {
 const safe = async <T>(p: Promise<T>, fallback: T): Promise<T> => {
   try { return await p; } catch (e) { console.warn('[contentService]', (e as Error).message); return fallback; }
 };
+
+// POST a multipart form to our API with upload progress + bearer token.
+function uploadForm<T = any>(path: string, form: FormData, onProgress?: (fraction: number) => void): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', path);
+    const t = authToken.get();
+    if (t) xhr.setRequestHeader('Authorization', `Bearer ${t}`);
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress?.(e.loaded / e.total); };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try { resolve(JSON.parse(xhr.responseText)); } catch { resolve(xhr.responseText as any); }
+      } else {
+        let msg = `${xhr.status}`;
+        try { msg = JSON.parse(xhr.responseText).error || msg; } catch {}
+        reject(new Error(msg));
+      }
+    };
+    xhr.onerror = () => reject(new Error('network error'));
+    xhr.send(form);
+  });
+}
 
 // PUT a file directly to a presigned S3 URL with upload progress.
 function putToS3(
@@ -241,6 +263,26 @@ export const contentService = {
   },
   async deleteQuestionBank(id: string): Promise<void> {
     await safe(api.del(`/api/question-banks/${id}`), undefined);
+  },
+
+  // ── SCORM ───────────────────────────────────────────────────────────────
+  async importScorm(file: File, title?: string, onProgress?: (fraction: number) => void): Promise<{ id: string; title: string; version: '1.2' | '2004'; launchHref: string; fileCount: number }> {
+    const form = new FormData();
+    form.append('file', file);
+    if (title) form.append('title', title);
+    return uploadForm('/api/scorm/import', form, onProgress);
+  },
+  async getScormPackage(id: string): Promise<{ id: string; title: string; version: '1.2' | '2004'; launchHref: string } | null> {
+    return safe(api.get(`/api/scorm/${encodeURIComponent(id)}`), null);
+  },
+  async getScormCmi(id: string): Promise<Record<string, string>> {
+    return safe(api.get(`/api/scorm/${encodeURIComponent(id)}/cmi`), {});
+  },
+  async saveScormCmi(id: string, cmi: Record<string, string>): Promise<void> {
+    await safe(api.post(`/api/scorm/${encodeURIComponent(id)}/cmi`, { cmi }), undefined);
+  },
+  async deleteScormPackage(id: string): Promise<void> {
+    await safe(api.del(`/api/scorm/${encodeURIComponent(id)}`), undefined);
   },
 
   // No-op: initial data now lives in PostgreSQL (migrated from Firebase)

@@ -7,9 +7,10 @@ import { spawn } from 'child_process';
 import { createServer as createViteServer } from 'vite';
 import { initSchema, dbConfigured, query as pgQuery } from './server/db';
 import * as repo from './server/repo';
-import { uploadToS3, s3Configured, presignUpload, ensureBucketCors } from './server/s3';
-import { signToken, requireAdmin, isAdminClaims, verifyToken, ADMIN_UIDS, ADMIN_EMAILS } from './server/auth';
+import { uploadToS3, s3Configured, presignUpload, ensureBucketCors, getObjectStream, deletePrefix } from './server/s3';
+import { signToken, requireAdmin, requireAuth, isAdminClaims, verifyToken, ADMIN_UIDS, ADMIN_EMAILS } from './server/auth';
 import { parseMoodleXml } from './server/moodle';
+import { importScormZip } from './server/scorm';
 
 // Firebase Admin — for generating custom tokens (Bitrix auth)
 let firebaseAdmin: any = null;
@@ -261,6 +262,57 @@ async function startServer() {
     const title = req.body?.title || req.file?.originalname?.replace(/\.xml$/i, '') || 'Банк вопросов';
     const id = await repo.createQuestionBank({ title, courseId: req.body?.courseId, questions: parsed.questions });
     res.json({ id, title, count: parsed.questions.length, skipped: parsed.skipped });
+  }));
+
+  // ── SCORM ─────────────────────────────────────────────────────────────
+  // Import a .zip SCORM package: unzip → S3 → store package metadata.
+  app.post('/api/scorm/import', requireAdmin, upload.single('file'), wrap(async (req, res) => {
+    if (!s3Configured()) return res.status(503).json({ error: 'S3 не настроен на сервере' });
+    if (!req.file) return res.status(400).json({ error: 'file (zip) required' });
+    const result = await importScormZip(req.file.buffer, req.body?.title || req.file.originalname?.replace(/\.zip$/i, ''));
+    await repo.createScormPackage(result);
+    res.json({ id: result.id, title: result.title, version: result.version, launchHref: result.launchHref, fileCount: result.fileCount });
+  }));
+
+  // Package metadata (used by the player to build the launch URL).
+  app.get('/api/scorm/:id', requireAuthSoft, wrap(async (req, res) => {
+    const p = await repo.getScormPackage(req.params.id);
+    if (!p) return res.status(404).json({ error: 'not found' });
+    res.json({ id: p.id, title: p.title, version: p.version, launchHref: p.launchHref });
+  }));
+
+  // Serve package content from OUR origin (so window.parent.API discovery works).
+  app.get('/api/scorm/:id/content/*', wrap(async (req, res) => {
+    const p = await repo.getScormPackage(req.params.id);
+    if (!p) return res.status(404).end();
+    const rel = (req.params[0] || '').replace(/\.\.+/g, '').replace(/^\/+/, ''); // no path traversal
+    const key = `${p.s3Prefix}${rel}`;
+    try {
+      const obj = await getObjectStream(key);
+      if (obj.contentType) res.setHeader('Content-Type', obj.contentType);
+      if (obj.contentLength != null) res.setHeader('Content-Length', String(obj.contentLength));
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      obj.stream.pipe(res);
+    } catch (e: any) {
+      res.status(404).json({ error: 'file not found in package' });
+    }
+  }));
+
+  // Per-user SCORM runtime (CMI data model).
+  app.get('/api/scorm/:id/cmi', requireAuth, wrap(async (req: any, res) => {
+    res.json(await repo.getScormRuntime(req.user.uid, req.params.id));
+  }));
+  app.post('/api/scorm/:id/cmi', requireAuth, wrap(async (req: any, res) => {
+    await repo.saveScormRuntime(req.user.uid, req.params.id, req.body?.cmi || {});
+    res.json({ ok: true });
+  }));
+
+  // Remove a package and its files.
+  app.delete('/api/scorm/:id', requireAdmin, wrap(async (req, res) => {
+    const p = await repo.getScormPackage(req.params.id);
+    if (p?.s3Prefix) await deletePrefix(p.s3Prefix);
+    await repo.deleteScormPackage(req.params.id);
+    res.json({ ok: true });
   }));
 
   // ═════════════════════════════════════════════════════════════════════

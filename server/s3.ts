@@ -9,8 +9,12 @@
 //   S3_SECRET_KEY    secret access key
 //   S3_PUBLIC_BASE   optional override for the public file URL base
 // ─────────────────────────────────────────────────────────────────────────────
-import { S3Client, PutObjectCommand, DeleteObjectCommand, PutBucketCorsCommand } from '@aws-sdk/client-s3';
+import {
+  S3Client, PutObjectCommand, DeleteObjectCommand, PutBucketCorsCommand,
+  GetObjectCommand, ListObjectsV2Command, DeleteObjectsCommand,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import type { Readable } from 'stream';
 
 let client: S3Client | null = null;
 
@@ -124,6 +128,68 @@ export async function uploadToS3(
     ACL: 'public-read',
   }));
   return publicUrl(key);
+}
+
+// Common file extension → MIME type (for SCORM content served via our proxy).
+const MIME: Record<string, string> = {
+  html: 'text/html; charset=utf-8', htm: 'text/html; charset=utf-8',
+  js: 'text/javascript; charset=utf-8', mjs: 'text/javascript; charset=utf-8',
+  css: 'text/css; charset=utf-8', json: 'application/json; charset=utf-8',
+  xml: 'application/xml; charset=utf-8', txt: 'text/plain; charset=utf-8',
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+  svg: 'image/svg+xml', webp: 'image/webp', ico: 'image/x-icon',
+  mp4: 'video/mp4', webm: 'video/webm', ogg: 'video/ogg', ogv: 'video/ogg',
+  mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4',
+  pdf: 'application/pdf', woff: 'font/woff', woff2: 'font/woff2',
+  ttf: 'font/ttf', otf: 'font/otf', eot: 'application/vnd.ms-fontobject',
+  swf: 'application/x-shockwave-flash',
+};
+export function contentTypeFor(name: string): string {
+  const ext = (name.split('.').pop() || '').toLowerCase();
+  return MIME[ext] || 'application/octet-stream';
+}
+
+/** Upload a buffer under an explicit key (used for SCORM package files). */
+export async function uploadBufferToKey(key: string, buffer: Buffer, contentType: string): Promise<void> {
+  await getClient().send(new PutObjectCommand({
+    Bucket: process.env.S3_BUCKET!,
+    Key: key,
+    Body: buffer,
+    ContentType: contentType || 'application/octet-stream',
+    ACL: 'public-read',
+  }));
+}
+
+/** Fetch an object as a stream (used to proxy SCORM content from our origin). */
+export async function getObjectStream(
+  key: string
+): Promise<{ stream: Readable; contentType?: string; contentLength?: number }> {
+  const out = await getClient().send(new GetObjectCommand({ Bucket: process.env.S3_BUCKET!, Key: key }));
+  return {
+    stream: out.Body as Readable,
+    contentType: out.ContentType,
+    contentLength: out.ContentLength,
+  };
+}
+
+/** Delete every object under a key prefix (best-effort, used when removing a package). */
+export async function deletePrefix(prefix: string): Promise<void> {
+  try {
+    const bucket = process.env.S3_BUCKET!;
+    let token: string | undefined;
+    do {
+      const list = await getClient().send(new ListObjectsV2Command({
+        Bucket: bucket, Prefix: prefix, ContinuationToken: token,
+      }));
+      const objs = (list.Contents || []).map((o) => ({ Key: o.Key! }));
+      if (objs.length) {
+        await getClient().send(new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: objs } }));
+      }
+      token = list.IsTruncated ? list.NextContinuationToken : undefined;
+    } while (token);
+  } catch (e: any) {
+    console.warn('[s3] deletePrefix failed:', e.message);
+  }
 }
 
 /** Delete an object by its public URL (best-effort). */
