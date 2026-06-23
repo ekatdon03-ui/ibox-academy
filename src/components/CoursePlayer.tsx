@@ -756,7 +756,7 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
 
                 {/* SCORM lesson — plays the package full-size via our runtime */}
                 {currentLesson.scormPackageId && !showQuiz && (
-                  <div className="relative mb-5 sm:mb-10 overflow-hidden border-2 border-gray-100 shadow-sm sm:shadow-2xl bg-white rounded-2xl sm:rounded-[32px] h-[78vw] min-h-[320px] sm:h-[72vh] sm:min-h-[480px]">
+                  <div className="relative mb-5 sm:mb-10 overflow-hidden border-2 border-gray-100 shadow-sm sm:shadow-2xl bg-white rounded-2xl sm:rounded-[32px] h-[88vw] min-h-[380px] sm:h-[82vh] sm:min-h-[560px]">
                     <ScormPlayer
                       packageId={currentLesson.scormPackageId}
                       user={user}

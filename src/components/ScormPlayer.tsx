@@ -8,6 +8,7 @@
 // (window.API_1484_11 / Initialize, GetValue, …).
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useEffect, useRef, useState } from 'react';
+import { Maximize2, Minimize2 } from 'lucide-react';
 import { contentService } from '../services/contentService';
 import { UserProfile, ScormPackageInfo } from '../types';
 
@@ -26,6 +27,8 @@ export default function ScormPlayer({ packageId, user, onComplete }: ScormPlayer
   const [info, setInfo] = useState<ScormPackageInfo | null>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState('');
+  const [fs, setFs] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const dataRef = useRef<Record<string, string>>({});
   const dirtyRef = useRef(false);
@@ -163,6 +166,31 @@ export default function ScormPlayer({ packageId, user, onComplete }: ScormPlayer
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [packageId]);
 
+  // Keep the React `fs` flag in sync with native fullscreen + allow Esc to exit.
+  useEffect(() => {
+    const onFsChange = () => { if (!document.fullscreenElement) setFs(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setFs(false); };
+    document.addEventListener('fullscreenchange', onFsChange);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFsChange);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, []);
+
+  // Toggle fullscreen WITHOUT remounting the iframe (would reset the SCORM session):
+  // we only restyle the same wrapper. Also try the native Fullscreen API on top.
+  const toggleFs = () => {
+    const el = containerRef.current;
+    if (!fs) {
+      setFs(true);
+      el?.requestFullscreen?.().catch(() => {}); // best-effort true fullscreen
+    } else {
+      setFs(false);
+      if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    }
+  };
+
   if (error) {
     return (
       <div className="w-full h-full flex items-center justify-center bg-[#F5F7FA] p-6 text-center">
@@ -185,12 +213,22 @@ export default function ScormPlayer({ packageId, user, onComplete }: ScormPlayer
   // encodeURI keeps slashes/query but escapes spaces & non-ASCII in the path.
   const src = `/api/scorm/${encodeURIComponent(packageId)}/content/${encodeURI(info.launchHref)}`;
   return (
-    <iframe
-      src={src}
-      className="absolute inset-0 w-full h-full border-none bg-white"
-      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
-      allowFullScreen
-      title={info.title || 'SCORM'}
-    />
+    <div ref={containerRef} className={fs ? 'fixed inset-0 z-[9999] bg-white' : 'absolute inset-0'}>
+      <iframe
+        src={src}
+        className="w-full h-full border-none bg-white"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+        allowFullScreen
+        title={info.title || 'SCORM'}
+      />
+      <button
+        onClick={toggleFs}
+        title={fs ? 'Свернуть' : 'На весь экран'}
+        className="absolute bottom-3 right-3 z-20 flex items-center gap-1.5 pl-2.5 pr-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wide shadow-lg transition-all active:scale-95 bg-[#002D57]/90 hover:bg-[#002D57] text-white border border-white/10"
+      >
+        {fs ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+        <span>{fs ? 'Свернуть' : 'Полный экран'}</span>
+      </button>
+    </div>
   );
 }

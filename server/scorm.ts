@@ -129,12 +129,24 @@ export function parseManifest(xml: string): ScormManifestInfo {
   if (raw.includes('2004') || raw.includes('imsss') || raw.includes('adlseq') ||
       raw.includes('adlcp_v1p3') || raw.includes('cam 1.3')) version = '2004';
 
-  const resources = asArray<any>(manifest.resources?.resource);
+  // Collect resources across (possibly multiple) <resources> containers, keeping
+  // each resource's effective base path (container xml:base + resource xml:base).
+  const containers = asArray<any>(manifest.resources);
+  const resources: any[] = [];
+  for (const c of containers) {
+    const cBase = c?.['@_xml:base'] || c?.['@_base'] || '';
+    for (const r of asArray<any>(c?.resource)) {
+      const rBase = r['@_xml:base'] || r['@_base'] || '';
+      resources.push({ ...r, __base: [cBase, rBase].filter(Boolean).join('/').replace(/\/+/g, '/') });
+    }
+  }
   const scormTypeOf = (r: any) => (r['@_scormType'] || r['@_scormtype'] || '').toLowerCase();
   const hasSco = resources.some((r) => scormTypeOf(r) === 'sco');
+  const isHtml = (h: string) => /\.html?($|[?#])/i.test(h || '');
 
-  // Prefer the SCO referenced by the default organization's first item.
-  let launch = '';
+  // Prefer the resource referenced by the default organization's first item;
+  // then a SCO with an href, then any HTML resource, then any resource.
+  let chosen: any = null;
   const orgs = manifest.organizations;
   const defaultOrgId = orgs?.['@_default'];
   const orgList = asArray<any>(orgs?.organization);
@@ -142,22 +154,17 @@ export function parseManifest(xml: string): ScormManifestInfo {
   const firstItem = findFirstItemWithRef(defaultOrg);
   if (firstItem) {
     const ref = firstItem['@_identifierref'];
-    const res = resources.find((r) => r['@_identifier'] === ref);
-    if (res?.['@_href']) launch = res['@_href'];
+    const res = resources.find((r) => r['@_identifier'] === ref && r['@_href']);
+    if (res) chosen = res;
+  }
+  if (!chosen) {
+    chosen = resources.find((r) => scormTypeOf(r) === 'sco' && r['@_href'])
+      || resources.find((r) => isHtml(r['@_href']))
+      || resources.find((r) => r['@_href']);
   }
 
-  // Otherwise prefer a SCO resource, then any resource with an HTML href,
-  // then any resource with an href.
-  if (!launch) {
-    const sco = resources.find((r) => scormTypeOf(r) === 'sco' && r['@_href']);
-    const html = resources.find((r) => /\.html?($|[?#])/i.test(r['@_href'] || ''));
-    const any = resources.find((r) => r['@_href']);
-    launch = (sco || html || any)?.['@_href'] || '';
-  }
-
-  const base = manifest.resources?.['@_base'] || manifest.resources?.['@_xml:base'] || '';
-  if (base && launch) launch = joinPath(base, launch);
-
+  let launch = chosen?.['@_href'] || '';
+  if (chosen?.__base && launch) launch = joinPath(chosen.__base, launch);
   if (!launch) launch = 'index.html';
   launch = normName(launch);
   return { version, launchHref: launch, hasSco };
