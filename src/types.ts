@@ -77,6 +77,11 @@ export interface UserCourseProgress {
   lastUpdated: string;
 }
 
+export interface QuizMistake {
+  q: string; // question text
+  a: string; // the answer the employee chose (NOT the correct one)
+}
+
 export interface CourseResult {
   userId: string;
   courseId: string;
@@ -85,6 +90,7 @@ export interface CourseResult {
   timestamp: string;
   createdAt?: any;
   tutorRating?: number;
+  mistakes?: QuizMistake[];
 }
 
 export interface GlossaryTerm {

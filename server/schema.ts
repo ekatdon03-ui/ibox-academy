@@ -167,4 +167,6 @@ CREATE TABLE IF NOT EXISTS scorm_runtime (
 ALTER TABLE lessons ADD COLUMN IF NOT EXISTS scorm_package_id TEXT;
 -- Link a whole course to a SCORM package (course media is the package).
 ALTER TABLE courses ADD COLUMN IF NOT EXISTS scorm_package_id TEXT;
+-- Wrong questions from the latest test attempt: [{q, a}] (no correct answer stored).
+ALTER TABLE results ADD COLUMN IF NOT EXISTS mistakes JSONB DEFAULT '[]'::jsonb;
 `;

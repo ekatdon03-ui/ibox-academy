@@ -166,19 +166,22 @@ export async function deleteGlossaryTerm(id: string): Promise<void> {
 export async function saveResult(r: any): Promise<void> {
   if (!r.userId || !r.courseId) return;
   await query(
-    `INSERT INTO results (user_id, course_id, score, progress, tutor_rating, created_at)
-     VALUES ($1,$2,$3,$4,$5, now())
+    `INSERT INTO results (user_id, course_id, score, progress, tutor_rating, mistakes, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6::jsonb, now())
      ON CONFLICT (user_id, course_id) DO UPDATE SET
        score = GREATEST(results.score, EXCLUDED.score),
        progress = GREATEST(results.progress, EXCLUDED.progress),
        tutor_rating = COALESCE(EXCLUDED.tutor_rating, results.tutor_rating),
+       mistakes = COALESCE(EXCLUDED.mistakes, results.mistakes),
        created_at = now()`,
-    [r.userId, r.courseId, intOr(r.score, 0), intOr(r.progress, 0), intOr(r.tutorRating, null)]
+    [r.userId, r.courseId, intOr(r.score, 0), intOr(r.progress, 0), intOr(r.tutorRating, null),
+     r.mistakes ? j(r.mistakes) : null]
   );
 }
 function rowToResult(r: any): any {
   return { userId: r.user_id, courseId: r.course_id, score: r.score, progress: r.progress,
-    tutorRating: r.tutor_rating ?? undefined, timestamp: r.created_at?.toISOString?.() || r.created_at };
+    tutorRating: r.tutor_rating ?? undefined, mistakes: r.mistakes || [],
+    timestamp: r.created_at?.toISOString?.() || r.created_at };
 }
 export async function getAllResults(): Promise<any[]> {
   return (await query('SELECT * FROM results')).rows.map(rowToResult);

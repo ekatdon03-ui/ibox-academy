@@ -26,6 +26,7 @@ export default function AnalyticsView({ results: _initialResults, courses, curre
 
   // Course drill-down
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
+  const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
 
   const [chartData, setChartData] = useState<{ day: string; value: number }[]>([]);
 
@@ -259,14 +260,27 @@ export default function AnalyticsView({ results: _initialResults, courses, curre
               <tbody className="divide-y divide-gray-50">
                 {enrolled.map(emp => {
                   const res = courseResults.find(r => r.userId === emp.id);
+                  const mistakes = res?.mistakes || [];
+                  const isExpanded = expandedUserId === emp.id;
                   return (
-                    <tr key={emp.id} className="hover:bg-gray-50/50 transition-colors">
+                    <React.Fragment key={emp.id}>
+                    <tr
+                      className={`transition-colors ${mistakes.length > 0 ? 'cursor-pointer hover:bg-red-50/40' : 'hover:bg-gray-50/50'}`}
+                      onClick={() => mistakes.length > 0 && setExpandedUserId(isExpanded ? null : emp.id)}
+                    >
                       <td className="py-6">
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 rounded-2xl bg-gray-50 flex items-center justify-center font-display font-black text-xs text-gray-400">
                             {emp.name?.split(' ').map(n => n[0] || '').slice(0, 2).join('') || '?'}
                           </div>
-                          <span className="font-display font-black uppercase text-sm tracking-tight text-[#002D57]">{emp.name}</span>
+                          <div className="flex flex-col">
+                            <span className="font-display font-black uppercase text-sm tracking-tight text-[#002D57]">{emp.name}</span>
+                            {mistakes.length > 0 && (
+                              <span className="text-[9px] font-black uppercase tracking-widest text-red-400 flex items-center gap-1">
+                                <XCircle size={11} /> {mistakes.length} ошиб. — {isExpanded ? 'скрыть' : 'показать'}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </td>
                       <td className="py-6 text-xs font-bold text-gray-400">{emp.department}</td>
@@ -288,6 +302,27 @@ export default function AnalyticsView({ results: _initialResults, courses, curre
                         {res ? new Date(res.timestamp).toLocaleDateString('ru-RU') : '—'}
                       </td>
                     </tr>
+                    {isExpanded && mistakes.length > 0 && (
+                      <tr>
+                        <td colSpan={5} className="pb-6 px-2">
+                          <div className="bg-red-50/50 border border-red-100 rounded-2xl p-5">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-red-400 mb-3">Ошибки в тесте</p>
+                            <div className="space-y-2.5">
+                              {mistakes.map((m, i) => (
+                                <div key={i} className="flex gap-3 items-start">
+                                  <span className="text-[10px] font-black text-red-300 mt-0.5 shrink-0">{i + 1}</span>
+                                  <div>
+                                    <p className="text-xs font-bold text-[#002D57] leading-snug">{m.q}</p>
+                                    <p className="text-[10px] font-medium text-red-500 mt-0.5">Ответил: {m.a}</p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </React.Fragment>
                   );
                 })}
                 {enrolled.length === 0 && (

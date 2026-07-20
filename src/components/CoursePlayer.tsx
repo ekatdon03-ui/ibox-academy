@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronLeft, ChevronRight, CheckCircle, HelpCircle, Trophy, X, Send, Zap, Maximize2, Minimize2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CheckCircle, HelpCircle, Trophy, X, XCircle, Send, Zap, Maximize2, Minimize2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 import { Course, UserProfile } from '../types';
@@ -190,6 +190,7 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
   const [quizFinished, setQuizFinished] = useState(false);
   const [selectedAnswers, setSelectedAnswers] = useState<number[]>([]);
   const [score, setScore] = useState(0);
+  const [mistakes, setMistakes] = useState<{ q: string; a: string }[]>([]);
   const [isCompleted, setIsCompleted] = useState(false);
   // Simulator phase: 'off' = not required, 'pending' = waiting to start, 'running' = chat active, 'done' = completed
   const [simPhase, setSimPhase] = useState<'off' | 'pending' | 'running' | 'done'>('off');
@@ -528,8 +529,14 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
   const handleQuizSubmit = async () => {
     const total = activeQuestions.length;
     let correct = 0;
+    const wrong: { q: string; a: string }[] = [];
     activeQuestions.forEach((q, idx) => {
-      if (Number(selectedAnswers[idx]) === Number(q.correctAnswer)) correct++;
+      if (Number(selectedAnswers[idx]) === Number(q.correctAnswer)) {
+        correct++;
+      } else {
+        // Record which question was missed + the chosen answer (never the correct one).
+        wrong.push({ q: q.question, a: q.options[selectedAnswers[idx]] ?? 'Нет ответа' });
+      }
     });
     const finalScore = total > 0 ? Math.round((correct / total) * 100) : 100;
 
@@ -550,6 +557,7 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
 
     // Final quiz
     setScore(finalScore);
+    setMistakes(wrong);
     setQuizFinished(true);
 
     const simRequired = course.simulatorMode === 'required' && finalScore >= PASS_THRESHOLD;
@@ -560,9 +568,9 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
         const lastLessonId = lessons[lessons.length - 1].id;
         if (finalScore >= PASS_THRESHOLD) {
           await contentService.updateLessonProgress(user.id, course.id, lastLessonId, true, lessons.length);
-          await contentService.saveResult({ userId: user.id, courseId: course.id, score: finalScore, progress: simRequired ? 50 : 100, timestamp: new Date().toISOString() });
+          await contentService.saveResult({ userId: user.id, courseId: course.id, score: finalScore, progress: simRequired ? 50 : 100, mistakes: wrong, timestamp: new Date().toISOString() });
         } else {
-          await contentService.saveResult({ userId: user.id, courseId: course.id, score: finalScore, progress: 50, timestamp: new Date().toISOString() });
+          await contentService.saveResult({ userId: user.id, courseId: course.id, score: finalScore, progress: 50, mistakes: wrong, timestamp: new Date().toISOString() });
         }
       }
     } catch (e) {}
@@ -935,18 +943,41 @@ export default function CoursePlayer({ course, user, onClose }: CoursePlayerProp
                 <p className="text-xs font-black uppercase tracking-widest text-[#00A3FF] mb-12">
                   {score >= PASS_THRESHOLD ? 'Курс успешно зачтен' : 'Попробуйте еще раз'}
                 </p>
-                <p className="text-lg font-bold text-gray-400 mb-12 leading-relaxed">
+                <p className="text-lg font-bold text-gray-400 mb-8 sm:mb-12 leading-relaxed">
                   {score >= PASS_THRESHOLD
                     ? 'Вы отлично справились с материалом курса!'
                     : `Для зачета необходимо набрать минимум ${PASS_THRESHOLD}%. Рекомендуем ещё раз ознакомиться с уроками.`}
                 </p>
+
+                {mistakes.length > 0 && (
+                  <div className="mb-10 text-left">
+                    <div className="flex items-center gap-2 mb-4">
+                      <XCircle size={16} className="text-red-500" />
+                      <h3 className="text-xs font-black uppercase tracking-widest text-[#002D57]">
+                        Вопросы с ошибками ({mistakes.length})
+                      </h3>
+                    </div>
+                    <div className="space-y-3">
+                      {mistakes.map((m, i) => (
+                        <div key={i} className="bg-red-50/60 border border-red-100 rounded-2xl px-5 py-4">
+                          <p className="text-sm font-bold text-[#002D57] leading-snug">{m.q}</p>
+                          <p className="text-[11px] font-medium text-red-500 mt-1.5">Ваш ответ: {m.a}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-[10px] font-bold text-gray-400 mt-4 leading-relaxed">
+                      Повторите материал по этим темам и пройдите тест снова.
+                    </p>
+                  </div>
+                )}
+
                 <div className="flex flex-col gap-4">
                   <button onClick={onClose} className="w-full py-6 bg-[#002D57] text-white rounded-3xl font-display font-black uppercase tracking-widest shadow-xl hover:bg-[#00A3FF] transition-all">
                     В личный кабинет
                   </button>
                   {score < PASS_THRESHOLD && (
                     <button
-                      onClick={() => { setScore(0); setQuizFinished(false); setSelectedAnswers([]); setQuizType(null); setCurrentLessonIdx(0); setSimPhase('off'); }}
+                      onClick={() => { setScore(0); setMistakes([]); setQuizFinished(false); setSelectedAnswers([]); setQuizType(null); setCurrentLessonIdx(0); setSimPhase('off'); }}
                       className="w-full py-6 border-2 border-gray-100 rounded-3xl font-display font-black uppercase tracking-widest text-gray-400 hover:text-[#002D57] transition-all"
                     >
                       Пройти заново
