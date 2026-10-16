@@ -88,6 +88,13 @@ export const contentService = {
     if (!userId) return [];
     return safe(api.get(`/api/results/user/${encodeURIComponent(userId)}`), []);
   },
+  async getAttemptsForUser(userId: string): Promise<any[]> {
+    if (!userId) return [];
+    return safe(api.get(`/api/attempts/user/${encodeURIComponent(userId)}`), []);
+  },
+  async getAttemptsForCourse(courseId: string): Promise<any[]> {
+    return safe(api.get(`/api/attempts/course/${encodeURIComponent(courseId)}`), []);
+  },
 
   // ── Course assignment ───────────────────────────────────────────────────
   async assignCourseToUser(userId: string, courseId: string) {

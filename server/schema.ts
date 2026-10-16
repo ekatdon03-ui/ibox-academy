@@ -169,4 +169,18 @@ ALTER TABLE lessons ADD COLUMN IF NOT EXISTS scorm_package_id TEXT;
 ALTER TABLE courses ADD COLUMN IF NOT EXISTS scorm_package_id TEXT;
 -- Wrong questions from the latest test attempt: [{q, a}] (no correct answer stored).
 ALTER TABLE results ADD COLUMN IF NOT EXISTS mistakes JSONB DEFAULT '[]'::jsonb;
+-- Recurring test assignment: 0 = one-time, 1 = monthly, 3 = quarterly, 12 = yearly.
+ALTER TABLE courses ADD COLUMN IF NOT EXISTS recurrence_months INTEGER DEFAULT 0;
+
+-- Full history of every test attempt (results row keeps only the latest summary).
+CREATE TABLE IF NOT EXISTS attempts (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  course_id TEXT NOT NULL,
+  score INTEGER DEFAULT 0,
+  mistakes JSONB DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_attempts_user ON attempts(user_id);
+CREATE INDEX IF NOT EXISTS idx_attempts_course ON attempts(course_id);
 `;

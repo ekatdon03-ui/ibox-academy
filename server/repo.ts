@@ -37,6 +37,7 @@ function rowToCourse(r: any, lessons: any[]): any {
     assignedToUsers: r.assigned_to_users || [],
     assignedToDepartments: r.assigned_to_departments || [],
     scormPackageId: r.scorm_package_id || undefined,
+    recurrenceMonths: r.recurrence_months ?? 0,
     lessons,
   };
 }
@@ -91,8 +92,8 @@ export async function createCourse(course: any): Promise<string> {
   await query(
     `INSERT INTO courses (id, title, description, category, thumbnail, is_public, hidden_from_users,
        type, file_url, has_simulator, simulator_mode, simulator_turns, test_mode, test_config,
-       assigned_to_users, assigned_to_departments, scorm_package_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb,$16::jsonb,$17)
+       assigned_to_users, assigned_to_departments, scorm_package_id, recurrence_months)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb,$16::jsonb,$17,$18)
      ON CONFLICT (id) DO UPDATE SET
        title = EXCLUDED.title, description = EXCLUDED.description, category = EXCLUDED.category,
        thumbnail = EXCLUDED.thumbnail, is_public = EXCLUDED.is_public,
@@ -102,12 +103,14 @@ export async function createCourse(course: any): Promise<string> {
        test_mode = EXCLUDED.test_mode, test_config = EXCLUDED.test_config,
        assigned_to_users = EXCLUDED.assigned_to_users,
        assigned_to_departments = EXCLUDED.assigned_to_departments,
-       scorm_package_id = EXCLUDED.scorm_package_id`,
+       scorm_package_id = EXCLUDED.scorm_package_id,
+       recurrence_months = EXCLUDED.recurrence_months`,
     [id, course.title || '', course.description || '', course.category || '', course.thumbnail || '',
      !!course.isPublic, !!course.hiddenFromUsers, course.type || null, course.fileUrl || null,
      course.hasSimulator ?? null, course.simulatorMode || null, intOr(course.simulatorTurns, null),
      course.testMode || null, j(course.testConfig || { type: 'none', questions: [] }),
-     j(course.assignedToUsers || []), j(course.assignedToDepartments || []), course.scormPackageId || null]
+     j(course.assignedToUsers || []), j(course.assignedToDepartments || []), course.scormPackageId || null,
+     intOr(course.recurrenceMonths, 0)]
   );
   await writeLessons(id, course.lessons || []);
   return id;
@@ -118,7 +121,7 @@ export async function updateCourse(id: string, u: any): Promise<void> {
     title: 'title', description: 'description', category: 'category', thumbnail: 'thumbnail',
     isPublic: 'is_public', hiddenFromUsers: 'hidden_from_users', type: 'type', fileUrl: 'file_url',
     hasSimulator: 'has_simulator', simulatorMode: 'simulator_mode', simulatorTurns: 'simulator_turns',
-    testMode: 'test_mode', scormPackageId: 'scorm_package_id',
+    testMode: 'test_mode', scormPackageId: 'scorm_package_id', recurrenceMonths: 'recurrence_months',
   };
   const sets: string[] = [];
   const vals: any[] = [];
@@ -165,23 +168,43 @@ export async function deleteGlossaryTerm(id: string): Promise<void> {
 // ── Results ──────────────────────────────────────────────────────────────────
 export async function saveResult(r: any): Promise<void> {
   if (!r.userId || !r.courseId) return;
+  const isTestAttempt = r.mistakes !== undefined; // only the quiz path sends mistakes
+  // results row holds the LATEST attempt summary (score/mistakes), not the best.
+  // progress stays as the max so lesson completion never regresses.
   await query(
     `INSERT INTO results (user_id, course_id, score, progress, tutor_rating, mistakes, created_at)
      VALUES ($1,$2,$3,$4,$5,$6::jsonb, now())
      ON CONFLICT (user_id, course_id) DO UPDATE SET
-       score = GREATEST(results.score, EXCLUDED.score),
+       score = CASE WHEN $7 THEN EXCLUDED.score ELSE GREATEST(results.score, EXCLUDED.score) END,
        progress = GREATEST(results.progress, EXCLUDED.progress),
        tutor_rating = COALESCE(EXCLUDED.tutor_rating, results.tutor_rating),
        mistakes = COALESCE(EXCLUDED.mistakes, results.mistakes),
        created_at = now()`,
     [r.userId, r.courseId, intOr(r.score, 0), intOr(r.progress, 0), intOr(r.tutorRating, null),
-     r.mistakes ? j(r.mistakes) : null]
+     r.mistakes ? j(r.mistakes) : null, isTestAttempt]
   );
+  // Record a history row for each real test attempt.
+  if (isTestAttempt) {
+    await query(
+      `INSERT INTO attempts (id, user_id, course_id, score, mistakes) VALUES ($1,$2,$3,$4,$5::jsonb)`,
+      [genId('att_'), r.userId, r.courseId, intOr(r.score, 0), j(r.mistakes || [])]
+    );
+  }
 }
 function rowToResult(r: any): any {
   return { userId: r.user_id, courseId: r.course_id, score: r.score, progress: r.progress,
     tutorRating: r.tutor_rating ?? undefined, mistakes: r.mistakes || [],
     timestamp: r.created_at?.toISOString?.() || r.created_at };
+}
+function rowToAttempt(r: any): any {
+  return { id: r.id, userId: r.user_id, courseId: r.course_id, score: r.score,
+    mistakes: r.mistakes || [], timestamp: r.created_at?.toISOString?.() || r.created_at };
+}
+export async function getAttemptsForUser(userId: string): Promise<any[]> {
+  return (await query('SELECT * FROM attempts WHERE user_id = $1 ORDER BY created_at DESC', [userId])).rows.map(rowToAttempt);
+}
+export async function getAttemptsForCourse(courseId: string): Promise<any[]> {
+  return (await query('SELECT * FROM attempts WHERE course_id = $1 ORDER BY created_at DESC', [courseId])).rows.map(rowToAttempt);
 }
 export async function getAllResults(): Promise<any[]> {
   return (await query('SELECT * FROM results')).rows.map(rowToResult);

@@ -40,6 +40,7 @@ export interface Course {
   isPublic?: boolean;
   fileUrl?: string;
   scormPackageId?: string; // When set, the course plays this SCORM package
+  recurrenceMonths?: number; // 0 = one-time, 1 = monthly, 3 = quarterly, 12 = yearly
   type?: 'presentation' | 'video' | 'scorm';
   hiddenFromUsers?: boolean;
   assignedToUsers?: string[];
@@ -91,6 +92,15 @@ export interface CourseResult {
   createdAt?: any;
   tutorRating?: number;
   mistakes?: QuizMistake[];
+}
+
+export interface TestAttempt {
+  id: string;
+  userId: string;
+  courseId: string;
+  score: number;
+  mistakes?: QuizMistake[];
+  timestamp: string;
 }
 
 export interface GlossaryTerm {

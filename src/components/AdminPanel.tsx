@@ -1217,6 +1217,7 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
   const [fileUrl, setFileUrl] = useState(initialData?.fileUrl || '');
   const [scormPackageId, setScormPackageId] = useState(initialData?.scormPackageId || '');
   const [isPublic, setIsPublic] = useState(initialData?.isPublic || false);
+  const [recurrenceMonths, setRecurrenceMonths] = useState<number>(initialData?.recurrenceMonths ?? 0);
   // Per-lesson "new link" input state (keyed by lesson index)
   const [newLessonLinks, setNewLessonLinks] = useState<Record<number, string>>({});
 
@@ -1481,6 +1482,7 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
         type: scormPackageId ? 'scorm' : courseType,
         fileUrl,
         scormPackageId: scormPackageId || undefined,
+        recurrenceMonths,
         isPublic,
         hasSimulator: (initialData?.simulatorMode ?? initialData?.hasSimulator) !== false && (initialData?.simulatorMode ?? 'optional') !== 'off',
         simulatorMode: initialData?.simulatorMode ?? (initialData?.hasSimulator === false ? 'off' : 'optional'),
@@ -1566,12 +1568,34 @@ function CourseCreationForm({ onComplete, courses, initialData, onCancel, showTo
                  <p className="font-display font-black uppercase text-sm tracking-tight text-[#002D57]">Доступ всем</p>
                  <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">Курс будет открыт всем сотрудникам автоматически</p>
                </div>
-               <button 
+               <button
                  onClick={() => setIsPublic(!isPublic)}
                  className={`w-20 h-10 rounded-2xl relative transition-all shadow-inner ${isPublic ? 'bg-green-500' : 'bg-gray-300'}`}
                >
                   <div className={`absolute top-1 w-8 h-8 bg-white rounded-xl shadow-md transition-all ${isPublic ? 'left-11' : 'left-1'}`} />
                </button>
+            </div>
+
+            <div className="p-8 bg-gray-50 rounded-[32px] border border-gray-100">
+               <p className="font-display font-black uppercase text-sm tracking-tight text-[#002D57]">Периодичность теста</p>
+               <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1 mb-5">Как часто сотрудник должен проходить тест заново</p>
+               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                 {[
+                   { label: 'Разово', v: 0 },
+                   { label: 'Ежемесячно', v: 1 },
+                   { label: 'Раз в квартал', v: 3 },
+                   { label: 'Раз в год', v: 12 },
+                 ].map(opt => (
+                   <button
+                     key={opt.v}
+                     type="button"
+                     onClick={() => setRecurrenceMonths(opt.v)}
+                     className={`py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest transition-all ${recurrenceMonths === opt.v ? 'bg-[#002D57] text-white shadow-lg' : 'bg-white text-gray-400 border border-gray-100 hover:border-[#002D57]/30'}`}
+                   >
+                     {opt.label}
+                   </button>
+                 ))}
+               </div>
             </div>
 
             <div className="space-y-4">

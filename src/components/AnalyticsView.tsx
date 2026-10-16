@@ -27,6 +27,16 @@ export default function AnalyticsView({ results: _initialResults, courses, curre
   // Course drill-down
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
+  const [courseAttempts, setCourseAttempts] = useState<any[]>([]);
+
+  useEffect(() => {
+    setExpandedUserId(null);
+    if (selectedCourseId) {
+      contentService.getAttemptsForCourse(selectedCourseId).then(setCourseAttempts).catch(() => setCourseAttempts([]));
+    } else {
+      setCourseAttempts([]);
+    }
+  }, [selectedCourseId]);
 
   const [chartData, setChartData] = useState<{ day: string; value: number }[]>([]);
 
@@ -261,12 +271,14 @@ export default function AnalyticsView({ results: _initialResults, courses, curre
                 {enrolled.map(emp => {
                   const res = courseResults.find(r => r.userId === emp.id);
                   const mistakes = res?.mistakes || [];
+                  const userAttempts = courseAttempts.filter(a => a.userId === emp.id);
+                  const canExpand = mistakes.length > 0 || userAttempts.length > 0;
                   const isExpanded = expandedUserId === emp.id;
                   return (
                     <React.Fragment key={emp.id}>
                     <tr
-                      className={`transition-colors ${mistakes.length > 0 ? 'cursor-pointer hover:bg-red-50/40' : 'hover:bg-gray-50/50'}`}
-                      onClick={() => mistakes.length > 0 && setExpandedUserId(isExpanded ? null : emp.id)}
+                      className={`transition-colors ${canExpand ? 'cursor-pointer hover:bg-red-50/40' : 'hover:bg-gray-50/50'}`}
+                      onClick={() => canExpand && setExpandedUserId(isExpanded ? null : emp.id)}
                     >
                       <td className="py-6">
                         <div className="flex items-center gap-3">
@@ -275,9 +287,9 @@ export default function AnalyticsView({ results: _initialResults, courses, curre
                           </div>
                           <div className="flex flex-col">
                             <span className="font-display font-black uppercase text-sm tracking-tight text-[#002D57]">{emp.name}</span>
-                            {mistakes.length > 0 && (
+                            {canExpand && (
                               <span className="text-[9px] font-black uppercase tracking-widest text-red-400 flex items-center gap-1">
-                                <XCircle size={11} /> {mistakes.length} ошиб. — {isExpanded ? 'скрыть' : 'показать'}
+                                <XCircle size={11} /> {mistakes.length > 0 ? `${mistakes.length} ошиб.` : `${userAttempts.length} попыток`} — {isExpanded ? 'скрыть' : 'показать'}
                               </span>
                             )}
                           </div>
@@ -302,22 +314,39 @@ export default function AnalyticsView({ results: _initialResults, courses, curre
                         {res ? new Date(res.timestamp).toLocaleDateString('ru-RU') : '—'}
                       </td>
                     </tr>
-                    {isExpanded && mistakes.length > 0 && (
+                    {isExpanded && canExpand && (
                       <tr>
                         <td colSpan={5} className="pb-6 px-2">
-                          <div className="bg-red-50/50 border border-red-100 rounded-2xl p-5">
-                            <p className="text-[9px] font-black uppercase tracking-widest text-red-400 mb-3">Ошибки в тесте</p>
-                            <div className="space-y-2.5">
-                              {mistakes.map((m, i) => (
-                                <div key={i} className="flex gap-3 items-start">
-                                  <span className="text-[10px] font-black text-red-300 mt-0.5 shrink-0">{i + 1}</span>
-                                  <div>
-                                    <p className="text-xs font-bold text-[#002D57] leading-snug">{m.q}</p>
-                                    <p className="text-[10px] font-medium text-red-500 mt-0.5">Ответил: {m.a}</p>
-                                  </div>
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                            {mistakes.length > 0 && (
+                              <div className="bg-red-50/50 border border-red-100 rounded-2xl p-5">
+                                <p className="text-[9px] font-black uppercase tracking-widest text-red-400 mb-3">Ошибки (последняя попытка)</p>
+                                <div className="space-y-2.5">
+                                  {mistakes.map((m, i) => (
+                                    <div key={i} className="flex gap-3 items-start">
+                                      <span className="text-[10px] font-black text-red-300 mt-0.5 shrink-0">{i + 1}</span>
+                                      <div>
+                                        <p className="text-xs font-bold text-[#002D57] leading-snug">{m.q}</p>
+                                        <p className="text-[10px] font-medium text-red-500 mt-0.5">Ответил: {m.a}</p>
+                                      </div>
+                                    </div>
+                                  ))}
                                 </div>
-                              ))}
-                            </div>
+                              </div>
+                            )}
+                            {userAttempts.length > 0 && (
+                              <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5">
+                                <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 mb-3">История прохождений</p>
+                                <div className="space-y-2">
+                                  {userAttempts.map((a, i) => (
+                                    <div key={a.id || i} className="flex items-center justify-between">
+                                      <span className="text-[10px] font-bold text-gray-500">{new Date(a.timestamp).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                                      <span className={`text-sm font-display font-black ${a.score >= 80 ? 'text-green-500' : 'text-red-400'}`}>{a.score}%</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </td>
                       </tr>

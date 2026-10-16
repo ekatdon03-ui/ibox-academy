@@ -34,9 +34,22 @@ export default function TrainingView({ courses, user, onSelectCourse, refreshTri
     if (user.id) loadData();
   }, [courses, user.id, refreshTrigger]);
 
-  const avgScore = results.length > 0 
-    ? Math.round(results.reduce((acc, curr) => acc + curr.score, 0) / results.length) 
+  const avgScore = results.length > 0
+    ? Math.round(results.reduce((acc, curr) => acc + curr.score, 0) / results.length)
     : 0;
+
+  // Whole months elapsed since a date.
+  const monthsSince = (iso: string) => {
+    const d = new Date(iso); const now = new Date();
+    return (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
+  };
+  // A recurring course is "due again" once the period has elapsed since the last attempt.
+  const isDueAgain = (course: Course) => {
+    if (!course.recurrenceMonths || course.recurrenceMonths <= 0) return false;
+    const res = results.find(r => r.courseId === course.id);
+    if (!res?.timestamp) return false;
+    return monthsSince(res.timestamp) >= course.recurrenceMonths;
+  };
 
   const isCourseAccessible = (course: Course) => {
     if (user.role === 'admin' || user.role === 'manager') return true;
@@ -113,6 +126,7 @@ export default function TrainingView({ courses, user, onSelectCourse, refreshTri
                   onSelect={onSelectCourse}
                   isTask
                   progress={progressMap[course.id]}
+                  dueAgain={isDueAgain(course)}
                 />
               ))}
             </div>
@@ -141,12 +155,13 @@ export default function TrainingView({ courses, user, onSelectCourse, refreshTri
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-8">
             {otherCourses.map((course, idx) => (
-              <CourseCard 
-                key={course.id} 
-                course={course} 
-                idx={idx} 
-                onSelect={onSelectCourse} 
+              <CourseCard
+                key={course.id}
+                course={course}
+                idx={idx}
+                onSelect={onSelectCourse}
                 progress={progressMap[course.id]}
+                dueAgain={isDueAgain(course)}
               />
             ))}
             {otherCourses.length === 0 && (
@@ -163,9 +178,12 @@ export default function TrainingView({ courses, user, onSelectCourse, refreshTri
   );
 }
 
-function CourseCard({ course, idx, onSelect, isTask, progress }: { course: Course, idx: number, onSelect: (c: Course) => void, isTask?: boolean, progress?: UserCourseProgress }) {
-  const isCompleted = progress?.status === 'completed';
+function CourseCard({ course, idx, onSelect, isTask, progress, dueAgain }: { course: Course, idx: number, onSelect: (c: Course) => void, isTask?: boolean, progress?: UserCourseProgress, dueAgain?: boolean }) {
+  const isCompleted = progress?.status === 'completed' && !dueAgain;
   const progressValue = progress?.overallProgress || 0;
+  const recurrenceLabel = course.recurrenceMonths === 1 ? 'Ежемесячно'
+    : course.recurrenceMonths === 3 ? 'Раз в квартал'
+    : course.recurrenceMonths === 12 ? 'Раз в год' : null;
 
   return (
     <motion.div 
@@ -175,9 +193,10 @@ function CourseCard({ course, idx, onSelect, isTask, progress }: { course: Cours
       className={`group bg-white p-4 sm:p-6 rounded-[32px] sm:rounded-[48px] flex flex-col border border-gray-100 shadow-sm hover:shadow-2xl transition-all cursor-pointer relative overflow-hidden ${isTask ? 'ring-2 ring-red-500/20' : ''}`}
       onClick={() => onSelect(course)}
     >
-      {isTask && (
-        <div className="absolute top-8 left-8 z-10">
-           <span className="bg-[#002D57] text-white px-4 py-2 rounded-xl text-[8px] font-black uppercase tracking-widest shadow-lg">Назначено</span>
+      {(isTask || dueAgain) && (
+        <div className="absolute top-8 left-8 z-10 flex flex-col gap-1.5 items-start">
+           {isTask && <span className="bg-[#002D57] text-white px-4 py-2 rounded-xl text-[8px] font-black uppercase tracking-widest shadow-lg">Назначено</span>}
+           {dueAgain && <span className="bg-amber-500 text-white px-4 py-2 rounded-xl text-[8px] font-black uppercase tracking-widest shadow-lg">Пройти заново</span>}
         </div>
       )}
       <div className="h-36 sm:h-48 bg-gray-50 rounded-[24px] sm:rounded-[32px] mb-4 sm:mb-8 relative overflow-hidden">
@@ -202,9 +221,9 @@ function CourseCard({ course, idx, onSelect, isTask, progress }: { course: Cours
 
         <div className="mt-auto">
           <div className="flex items-center justify-between text-[9px] sm:text-[10px] font-black uppercase tracking-widest mb-2 sm:mb-3">
-            <span className="text-gray-300">Статус</span>
-            <span className={isCompleted ? 'text-green-500' : (progress?.status === 'in-progress' ? 'text-[#00A3FF]' : 'text-gray-400')}>
-              {isCompleted ? 'Завершено' : (progress?.status === 'in-progress' ? `В процессе ${progressValue}%` : 'Не начато')}
+            <span className="text-gray-300">{recurrenceLabel || 'Статус'}</span>
+            <span className={dueAgain ? 'text-amber-500' : isCompleted ? 'text-green-500' : (progress?.status === 'in-progress' ? 'text-[#00A3FF]' : 'text-gray-400')}>
+              {dueAgain ? 'Нужно пройти заново' : isCompleted ? 'Завершено' : (progress?.status === 'in-progress' ? `В процессе ${progressValue}%` : 'Не начато')}
             </span>
           </div>
           <div className="w-full h-1.5 bg-gray-50 rounded-full overflow-hidden mb-4 sm:mb-8">

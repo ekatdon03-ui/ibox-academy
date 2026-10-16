@@ -214,6 +214,10 @@ async function startServer() {
   app.get('/api/results/me', requireAuthSoft, wrap(async (req, res) => res.json(await repo.getResultsForUser(req.user?.uid))));
   app.get('/api/results/user/:userId', requireAuthSoft, wrap(async (req, res) => res.json(await repo.getResultsForUser(req.params.userId))));
   app.post('/api/results', requireAuthSoft, wrap(async (req, res) => { await repo.saveResult({ ...req.body, userId: req.body.userId || req.user?.uid }); res.json({ ok: true }); }));
+  // Attempt history (latest-first)
+  app.get('/api/attempts/me', requireAuthSoft, wrap(async (req, res) => res.json(await repo.getAttemptsForUser(req.user?.uid))));
+  app.get('/api/attempts/user/:userId', requireAuthSoft, wrap(async (req, res) => res.json(await repo.getAttemptsForUser(req.params.userId))));
+  app.get('/api/attempts/course/:courseId', requireAdmin, wrap(async (req, res) => res.json(await repo.getAttemptsForCourse(req.params.courseId))));
 
   // ── Progress ──────────────────────────────────────────────────────────
   app.get('/api/progress/:userId/:courseId', requireAuthSoft, wrap(async (req, res) => res.json(await repo.getCourseProgress(req.params.userId, req.params.courseId))));

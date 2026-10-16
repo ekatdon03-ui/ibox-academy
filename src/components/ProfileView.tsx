@@ -14,9 +14,10 @@ export default function ProfileView({ user, onUpdateUser, courses }: ProfileView
   const [isEditingAvatar, setIsEditingAvatar] = useState(false);
   const [newAvatarUrl, setNewAvatarUrl] = useState(user.avatar || '');
   const [results, setResults] = useState<CourseResult[]>([]);
+  const [attempts, setAttempts] = useState<any[]>([]);
   const [trainerHistory, setTrainerHistory] = useState<SimulatorSession[]>([]);
   const [lessonHistory, setLessonHistory] = useState<UserCourseProgress[]>([]);
-  const [activeHistoryTab, setActiveHistoryTab] = useState<'lessons' | 'ai'>('lessons');
+  const [activeHistoryTab, setActiveHistoryTab] = useState<'lessons' | 'tests' | 'ai'>('lessons');
   const [adminMsg, setAdminMsg] = useState('');
 
   const ADMIN_EMAILS = ['oap.ibox.company@gmail.com', 'pem@i-box.company'];
@@ -35,15 +36,17 @@ export default function ProfileView({ user, onUpdateUser, courses }: ProfileView
   useEffect(() => {
     const load = async () => {
       try {
-        const [uResults, history, progress] = await Promise.all([
+        const [uResults, history, progress, uAttempts] = await Promise.all([
           contentService.getResultsForUser(user.id),
           contentService.getSimulatorSessions(user.id),
-          contentService.getAllProgressForUser(user.id)
+          contentService.getAllProgressForUser(user.id),
+          contentService.getAttemptsForUser(user.id),
         ]);
 
         setResults(uResults);
         setTrainerHistory(history);
         setLessonHistory(progress);
+        setAttempts(uAttempts);
       } catch (e) {
         console.error("Profile load failed:", e);
       }
@@ -51,13 +54,8 @@ export default function ProfileView({ user, onUpdateUser, courses }: ProfileView
     load();
   }, [user.id]);
 
-  // Deduplicate by courseId — keep best score per course so retakes don't distort average
-  const bestPerCourse = new Map<string, CourseResult>();
-  results.forEach(r => {
-    const prev = bestPerCourse.get(r.courseId);
-    if (!prev || r.score > prev.score) bestPerCourse.set(r.courseId, r);
-  });
-  const uniqueResults = Array.from(bestPerCourse.values());
+  // One row per course — the results table already holds the LATEST attempt.
+  const uniqueResults = results;
 
   const avgScore = uniqueResults.length > 0
     ? Math.round(uniqueResults.reduce((acc, curr) => acc + curr.score, 0) / uniqueResults.length)
@@ -185,6 +183,12 @@ export default function ProfileView({ user, onUpdateUser, courses }: ProfileView
                   Уроки
                 </button>
                 <button
+                  onClick={() => setActiveHistoryTab('tests')}
+                  className={`px-4 sm:px-6 py-2 sm:py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${activeHistoryTab === 'tests' ? 'bg-[#002D57] text-white shadow-lg' : 'text-gray-400 hover:text-[#002D57]'}`}
+                >
+                  Тесты
+                </button>
+                <button
                   onClick={() => setActiveHistoryTab('ai')}
                   className={`px-4 sm:px-6 py-2 sm:py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${activeHistoryTab === 'ai' ? 'bg-[#002D57] text-white shadow-lg' : 'text-gray-400 hover:text-[#002D57]'}`}
                 >
@@ -220,6 +224,41 @@ export default function ProfileView({ user, onUpdateUser, courses }: ProfileView
                               <div className="h-full bg-green-500" style={{ width: `${progress.overallProgress}%` }} />
                            </div>
                         </div>
+                       );
+                     })
+                   )}
+                 </motion.div>
+               ) : activeHistoryTab === 'tests' ? (
+                 <motion.div initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} key="tests">
+                   {attempts.length === 0 ? (
+                     <div className="p-10 sm:p-20 text-center text-gray-300 font-display font-black uppercase tracking-widest text-sm">Нет пройденных тестов</div>
+                   ) : (
+                     attempts.map((att, idx) => {
+                       const course = courses.find(c => c.id === att.courseId);
+                       const passed = att.score >= 80;
+                       return (
+                         <div key={att.id || idx} className="p-4 sm:p-8 border-b border-gray-50 flex items-center justify-between gap-3 hover:bg-gray-50/50 transition-all">
+                           <div className="flex items-center gap-3 sm:gap-6 min-w-0">
+                             <div className={`w-12 h-12 sm:w-16 sm:h-16 rounded-2xl sm:rounded-3xl flex items-center justify-center font-display font-black text-sm sm:text-lg shrink-0 ${passed ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-500'}`}>
+                               {att.score}%
+                             </div>
+                             <div className="min-w-0">
+                               <p className="text-[10px] font-black uppercase tracking-widest text-[#00A3FF] mb-1 truncate">
+                                 {course?.title || `ID: ${att.courseId}`}
+                               </p>
+                               <p className="font-bold text-[#002D57] text-sm">{passed ? 'Тест пройден' : 'Тест не пройден'}</p>
+                               {att.mistakes?.length > 0 && (
+                                 <p className="text-[9px] sm:text-[10px] text-red-400 font-bold uppercase tracking-widest mt-1">{att.mistakes.length} ошибок</p>
+                               )}
+                             </div>
+                           </div>
+                           <div className="flex items-center gap-2 text-gray-300 shrink-0">
+                             <Clock size={14} />
+                             <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest">
+                               {att.timestamp ? new Date(att.timestamp).toLocaleDateString('ru-RU') : '—'}
+                             </span>
+                           </div>
+                         </div>
                        );
                      })
                    )}
