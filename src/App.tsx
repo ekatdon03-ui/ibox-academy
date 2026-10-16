@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { GraduationCap, Terminal, Book, User, BarChart3, LayoutDashboard } from 'lucide-react';
+import { GraduationCap, Terminal, Book, User, BarChart3, LayoutDashboard, Headphones } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import Navbar from './components/Navbar';
 import TrainingView from './components/TrainingView';
@@ -7,6 +7,7 @@ import GlossaryView from './components/GlossaryView';
 import ProfileView from './components/ProfileView';
 import AdminPanel from './components/AdminPanel';
 import SimulatorView from './components/SimulatorView';
+import SupportTrainerView from './components/SupportTrainerView';
 import AnalyticsView from './components/AnalyticsView';
 import CoursePlayer from './components/CoursePlayer';
 import AIAssistant from './components/AIAssistant';
@@ -54,7 +55,7 @@ function MobileBottomNav({ activeTab, setActiveTab, user }: {
 
   const items = [
     { id: 'training',  label: 'Обучение',  Icon: GraduationCap },
-    { id: 'simulator', label: 'Тренажер',  Icon: Terminal },
+    { id: 'support',   label: 'Поддержка', Icon: Headphones },
     { id: 'glossary',  label: 'Глоссарий', Icon: Book },
     { id: 'profile',   label: 'Профиль',   Icon: User },
     ...(isManager ? [{ id: 'analytics', label: 'Аналитика', Icon: BarChart3 }] : []),
@@ -217,6 +218,7 @@ export default function App() {
       case 'glossary':  return <GlossaryView />;
       case 'profile':   return <ProfileView user={user} onUpdateUser={handleUpdateUser} courses={courses} />;
       case 'simulator': return <SimulatorView courses={courses} user={user} onRefreshUser={handleRefreshUser} />;
+      case 'support':   return <SupportTrainerView user={user} />;
       case 'analytics': return <AnalyticsView results={results} courses={courses} currentUser={user} employees={users} />;
       case 'admin':     return (
         <AdminPanel

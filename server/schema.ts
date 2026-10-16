@@ -183,4 +183,40 @@ CREATE TABLE IF NOT EXISTS attempts (
 );
 CREATE INDEX IF NOT EXISTS idx_attempts_user ON attempts(user_id);
 CREATE INDEX IF NOT EXISTS idx_attempts_course ON attempts(course_id);
+
+-- ── Support AI-trainer ──────────────────────────────────────────────────────
+-- Scenario cards: a client persona + hidden behaviour the AI-client follows.
+-- The hidden client_prompt / knowledge base are editable ONLY in the admin UI.
+CREATE TABLE IF NOT EXISTS trainer_scenarios (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL DEFAULT '',
+  group_name TEXT DEFAULT '',          -- А / Б / В / Г
+  channel TEXT DEFAULT 'chat',          -- chat | call
+  difficulty TEXT DEFAULT 'basic',      -- basic | medium | hard
+  persona_name TEXT DEFAULT 'Клиент',
+  persona_emoji TEXT DEFAULT '🙂',
+  persona_desc TEXT DEFAULT '',
+  start_message TEXT DEFAULT '',        -- AI-client's first line
+  client_prompt TEXT DEFAULT '',        -- hidden: behaviour, hidden facts, traps
+  active BOOLEAN DEFAULT TRUE,
+  is_public BOOLEAN DEFAULT TRUE,       -- visible to everyone, or only to assigned
+  assigned_to_users JSONB DEFAULT '[]'::jsonb,
+  assigned_to_departments JSONB DEFAULT '[]'::jsonb,
+  position INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- One training session: dialog + evaluation.
+CREATE TABLE IF NOT EXISTS trainer_sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  scenario_id TEXT,
+  scenario_title TEXT DEFAULT '',
+  score INTEGER DEFAULT 0,
+  criteria_scores JSONB DEFAULT '[]'::jsonb,
+  feedback TEXT DEFAULT '',
+  chat_history JSONB DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_trainer_sessions_user ON trainer_sessions(user_id);
 `;

@@ -461,3 +461,100 @@ export async function saveScormRuntime(userId: string, packageId: string, cmi: a
     [userId, packageId, j(cmi || {})]
   );
 }
+
+// ── Support AI-trainer ───────────────────────────────────────────────────────
+function rowToScenario(r: any, forAdmin = false): any {
+  const base: any = {
+    id: r.id, title: r.title, groupName: r.group_name || '', channel: r.channel || 'chat',
+    difficulty: r.difficulty || 'basic', personaName: r.persona_name || 'Клиент',
+    personaEmoji: r.persona_emoji || '🙂', personaDesc: r.persona_desc || '',
+    startMessage: r.start_message || '', active: r.active,
+    isPublic: r.is_public, assignedToUsers: r.assigned_to_users || [],
+    assignedToDepartments: r.assigned_to_departments || [], position: r.position ?? 0,
+  };
+  // The hidden client prompt is only exposed to admins (editing).
+  if (forAdmin) base.clientPrompt = r.client_prompt || '';
+  return base;
+}
+export async function getTrainerScenarios(forAdmin = false): Promise<any[]> {
+  const where = forAdmin ? '' : 'WHERE active = TRUE';
+  const rows = (await query(`SELECT * FROM trainer_scenarios ${where} ORDER BY position ASC, created_at ASC`)).rows;
+  return rows.map((r) => rowToScenario(r, forAdmin));
+}
+// Full row incl. hidden client_prompt — used server-side to run the AI-client.
+export async function getTrainerScenarioFull(id: string): Promise<any | null> {
+  const rows = (await query('SELECT * FROM trainer_scenarios WHERE id=$1', [id])).rows;
+  if (!rows[0]) return null;
+  const s = rowToScenario(rows[0], true);
+  return s;
+}
+export async function createTrainerScenario(s: any): Promise<string> {
+  const id = s.id || genId('scn_');
+  await query(
+    `INSERT INTO trainer_scenarios
+       (id, title, group_name, channel, difficulty, persona_name, persona_emoji, persona_desc,
+        start_message, client_prompt, active, is_public, assigned_to_users, assigned_to_departments, position)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb,$15)
+     ON CONFLICT (id) DO UPDATE SET
+       title=EXCLUDED.title, group_name=EXCLUDED.group_name, channel=EXCLUDED.channel,
+       difficulty=EXCLUDED.difficulty, persona_name=EXCLUDED.persona_name,
+       persona_emoji=EXCLUDED.persona_emoji, persona_desc=EXCLUDED.persona_desc,
+       start_message=EXCLUDED.start_message, client_prompt=EXCLUDED.client_prompt,
+       active=EXCLUDED.active, is_public=EXCLUDED.is_public,
+       assigned_to_users=EXCLUDED.assigned_to_users,
+       assigned_to_departments=EXCLUDED.assigned_to_departments, position=EXCLUDED.position`,
+    [id, s.title || '', s.groupName || '', s.channel || 'chat', s.difficulty || 'basic',
+     s.personaName || 'Клиент', s.personaEmoji || '🙂', s.personaDesc || '',
+     s.startMessage || '', s.clientPrompt || '', s.active !== false, s.isPublic !== false,
+     j(s.assignedToUsers || []), j(s.assignedToDepartments || []), intOr(s.position, 0)]
+  );
+  return id;
+}
+export async function deleteTrainerScenario(id: string): Promise<void> {
+  await query('DELETE FROM trainer_scenarios WHERE id=$1', [id]);
+}
+
+export async function saveTrainerSession(s: any): Promise<string> {
+  const id = s.id || genId('tsn_');
+  await query(
+    `INSERT INTO trainer_sessions (id, user_id, scenario_id, scenario_title, score, criteria_scores, feedback, chat_history)
+     VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8::jsonb) ON CONFLICT (id) DO NOTHING`,
+    [id, s.userId, s.scenarioId || null, s.scenarioTitle || '', intOr(s.score, 0),
+     j(s.criteriaScores || []), s.feedback || '', j(s.chatHistory || [])]
+  );
+  return id;
+}
+function rowToTrainerSession(r: any): any {
+  return { id: r.id, userId: r.user_id, scenarioId: r.scenario_id, scenarioTitle: r.scenario_title,
+    score: r.score, criteriaScores: r.criteria_scores || [], feedback: r.feedback,
+    chatHistory: r.chat_history || [], timestamp: r.created_at?.toISOString?.() || r.created_at };
+}
+export async function getTrainerSessionsForUser(userId: string): Promise<any[]> {
+  return (await query('SELECT * FROM trainer_sessions WHERE user_id=$1 ORDER BY created_at DESC', [userId])).rows.map(rowToTrainerSession);
+}
+export async function getAllTrainerSessions(): Promise<any[]> {
+  return (await query('SELECT * FROM trainer_sessions ORDER BY created_at DESC LIMIT 2000')).rows.map(rowToTrainerSession);
+}
+
+// Trainer settings live in the settings table under a single key.
+const DEFAULT_TRAINER_SETTINGS = { clientRules: '', evalRules: '', criteria: [] as string[], knowledge: '' };
+export async function getTrainerSettings(): Promise<any> {
+  const rows = (await query(`SELECT value FROM settings WHERE key='trainer_settings'`)).rows;
+  return rows[0]?.value || DEFAULT_TRAINER_SETTINGS;
+}
+export async function saveTrainerSettings(s: any): Promise<void> {
+  await query(`INSERT INTO settings (key, value) VALUES ('trainer_settings', $1::jsonb)
+    ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value`, [j(s)]);
+}
+// Seed defaults + scenarios once, if empty.
+export async function seedTrainerIfEmpty(seed: {
+  settings: any; scenarios: any[];
+}): Promise<void> {
+  const cnt = (await query('SELECT COUNT(*)::int AS n FROM trainer_scenarios')).rows[0]?.n ?? 0;
+  const hasSettings = (await query(`SELECT 1 FROM settings WHERE key='trainer_settings'`)).rows.length > 0;
+  if (!hasSettings) await saveTrainerSettings(seed.settings);
+  if (cnt === 0) {
+    for (const s of seed.scenarios) await createTrainerScenario(s);
+    console.log(`[trainer] seeded ${seed.scenarios.length} scenarios`);
+  }
+}

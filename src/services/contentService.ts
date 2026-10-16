@@ -292,6 +292,43 @@ export const contentService = {
     await safe(api.del(`/api/scorm/${encodeURIComponent(id)}`), undefined);
   },
 
+  // ── Support AI-trainer ──────────────────────────────────────────────────
+  async getTrainerScenarios(): Promise<any[]> {
+    return safe(api.get('/api/trainer/scenarios'), []);
+  },
+  async saveTrainerScenario(s: any): Promise<string> {
+    const r = await api.post<{ id: string }>('/api/trainer/scenarios', s);
+    return r.id;
+  },
+  async deleteTrainerScenario(id: string): Promise<void> {
+    await safe(api.del(`/api/trainer/scenarios/${encodeURIComponent(id)}`), undefined);
+  },
+  async getTrainerSettings(): Promise<{ clientRules: string; evalRules: string; criteria: string[]; knowledge: string }> {
+    return safe(api.get('/api/trainer/settings'), { clientRules: '', evalRules: '', criteria: [], knowledge: '' });
+  },
+  async saveTrainerSettings(s: any): Promise<void> {
+    await api.put('/api/trainer/settings', s);
+  },
+  async trainerChat(scenarioId: string, message: string, history: any[]): Promise<string> {
+    const r = await api.post<{ reply: string }>('/api/trainer/chat', { scenarioId, message, history });
+    return r.reply || '';
+  },
+  async trainerEvaluate(scenarioId: string, history: any[]): Promise<{ score: number; criteriaScores: any[]; good: string[]; feedback: string }> {
+    return safe(api.post('/api/trainer/evaluate', { scenarioId, history }), { score: 0, criteriaScores: [], good: [], feedback: 'Не удалось получить оценку.' });
+  },
+  async saveTrainerSession(s: any): Promise<void> {
+    await safe(api.post('/api/trainer/sessions', s), undefined);
+  },
+  async getMyTrainerSessions(): Promise<any[]> {
+    return safe(api.get('/api/trainer/sessions/me'), []);
+  },
+  async getTrainerSessionsForUser(userId: string): Promise<any[]> {
+    return safe(api.get(`/api/trainer/sessions/user/${encodeURIComponent(userId)}`), []);
+  },
+  async getAllTrainerSessions(): Promise<any[]> {
+    return safe(api.get('/api/trainer/sessions'), []);
+  },
+
   // No-op: initial data now lives in PostgreSQL (migrated from Firebase)
   async migrateInitialData() { /* deprecated */ },
 };

@@ -1,5 +1,5 @@
 import React from 'react';
-import { GraduationCap, Terminal, Book, User, LayoutDashboard, BarChart3 } from 'lucide-react';
+import { GraduationCap, Terminal, Book, User, LayoutDashboard, BarChart3, Headphones } from 'lucide-react';
 import { UserProfile } from '../types';
 
 interface SidebarProps {
@@ -51,6 +51,7 @@ export default function Sidebar({ user, activeTab, setActiveTab }: SidebarProps)
       {/* Main nav */}
       <NavBtn id="training"  label="Обучение"  icon={GraduationCap} active={activeTab==='training'}  onClick={() => setActiveTab('training')} />
       <NavBtn id="simulator" label="Тренажер"  icon={Terminal}       active={activeTab==='simulator'} onClick={() => setActiveTab('simulator')} />
+      <NavBtn id="support"   label="Поддержка" icon={Headphones}     active={activeTab==='support'}   onClick={() => setActiveTab('support')} />
       <NavBtn id="glossary"  label="Глоссарий" icon={Book}           active={activeTab==='glossary'}  onClick={() => setActiveTab('glossary')} />
       <NavBtn id="profile"   label="Профиль"   icon={User}           active={activeTab==='profile'}   onClick={() => setActiveTab('profile')} />
 

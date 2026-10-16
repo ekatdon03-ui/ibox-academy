@@ -4,13 +4,14 @@ import {
   Plus, ListChecks, FileText, Users,
   BarChart3, Settings, Upload, Check, Zap,
   X, HelpCircle, Save, Play, Shield, Eye, EyeOff,
-  Link as LinkIcon, RefreshCw, Trash2
+  Link as LinkIcon, RefreshCw, Trash2, Headphones
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Course, GlossaryTerm, UserProfile, TestConfig, QuizQuestion, Lesson } from '../types';
 import { contentService, AISettings, QuestionBankInfo } from '../services/contentService';
 import { aiService } from '../services/aiService';
 import { bitrixService } from '../services/bitrixService';
+import TrainerAdmin from './TrainerAdmin';
 
 interface AdminPanelProps {
   courses: Course[];
@@ -23,7 +24,7 @@ interface AdminPanelProps {
 }
 
 export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUserRoleChange, onUpdateUser, onUpdateAllUsers, currentUser }: AdminPanelProps) {
-  const [activeTab, setActiveTab] = useState<'content' | 'team' | 'glossary' | 'ai' | 'roles'>('content');
+  const [activeTab, setActiveTab] = useState<'content' | 'team' | 'glossary' | 'ai' | 'roles' | 'trainer'>('content');
   const [isAddingCourse, setIsAddingCourse] = useState(false);
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
   const [isConfiguringTest, setIsConfiguringTest] = useState<string | null>(null); // courseId
@@ -336,6 +337,7 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
                { id: 'team', label: 'Команда', icon: Users },
                { id: 'roles', label: 'Роли', icon: Shield },
                { id: 'glossary', label: 'Глоссарий', icon: ListChecks },
+               { id: 'trainer', label: 'Тренажёр', icon: Headphones },
                { id: 'ai', label: 'ИИ Тюнинг', icon: Zap }
              ].map(tab => (
                <button
@@ -749,6 +751,12 @@ export default function AdminPanel({ courses, onAddCourse, onUpdateCourses, onUs
                   </table>
                </div>
             </motion.div>
+          )}
+
+          {activeTab === 'trainer' && (
+             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} key="trainer">
+                <TrainerAdmin employees={users} showToast={showToast} />
+             </motion.div>
           )}
 
           {activeTab === 'ai' && (
