@@ -61,12 +61,12 @@ export default function PixelAvatar({ seed, mood = 'calm', size = 96, className 
 }) {
   const h = hash(seed || 'x');
   const skin = SKIN[h % SKIN.length];
-  const hair = HAIR[(h >> 3) % HAIR.length];
-  const shirt = SHIRT[(h >> 6) % SHIRT.length];
-  const [bg1, bg2] = BG[(h >> 9) % BG.length];
-  const style = (h >> 12) % 4;
-  const glasses = ((h >> 15) & 1) === 1;
-  const cap = SHIRT[(h >> 18) % SHIRT.length];
+  const hair = HAIR[(h >>> 3) % HAIR.length];
+  const shirt = SHIRT[(h >>> 6) % SHIRT.length];
+  const [bg1, bg2] = BG[(h >>> 9) % BG.length];
+  const style = (h >>> 12) % 4;
+  const glasses = ((h >>> 15) & 1) === 1;
+  const cap = SHIRT[(h >>> 18) % SHIRT.length];
   const grid = buildGrid(mood, style);
   const cell = 10;
   const palette: Record<string, string> = { H: hair, C: cap, S: skin, E: '#241C18', B: hair, M: '#B5495B', T: shirt };
