@@ -9,14 +9,14 @@ interface Props { employees: UserProfile[]; showToast: (msg: string, isError?: b
 type Scenario = {
   id?: string; title: string; groupName: string; channel: string; difficulty: string;
   personaName: string; personaEmoji: string; personaDesc: string; startMessage: string;
-  clientPrompt: string; active: boolean; isPublic: boolean;
+  clientPrompt: string; referenceDialog: string; active: boolean; isPublic: boolean;
   assignedToUsers: string[]; assignedToDepartments: string[]; position?: number;
 };
 
 const EMPTY: Scenario = {
   title: '', groupName: '', channel: 'chat', difficulty: 'basic',
   personaName: '', personaEmoji: '🙂', personaDesc: '', startMessage: '', clientPrompt: '',
-  active: true, isPublic: true, assignedToUsers: [], assignedToDepartments: [],
+  referenceDialog: '', active: true, isPublic: true, assignedToUsers: [], assignedToDepartments: [],
 };
 
 const INPUT = 'w-full bg-[#F5F7FA] rounded-2xl px-4 py-3 outline-none font-bold text-sm focus:ring-4 focus:ring-[#00A3FF]/10 transition-all';
@@ -24,7 +24,7 @@ const TEXTAREA = 'w-full bg-[#F5F7FA] rounded-2xl px-4 py-3 outline-none font-me
 
 export default function TrainerAdmin({ employees, showToast }: Props) {
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
-  const [settings, setSettings] = useState({ clientRules: '', evalRules: '', criteria: [] as string[], knowledge: '' });
+  const [settings, setSettings] = useState({ clientRules: '', evalRules: '', criteria: [] as string[], knowledge: '', templates: [] as { title: string; text: string }[] });
   const [editing, setEditing] = useState<Scenario | null>(null);
   const [saving, setSaving] = useState(false);
   const [userSearch, setUserSearch] = useState('');
@@ -32,7 +32,7 @@ export default function TrainerAdmin({ employees, showToast }: Props) {
   const load = async () => {
     const [sc, st] = await Promise.all([contentService.getTrainerScenarios(), contentService.getTrainerSettings()]);
     setScenarios(sc);
-    setSettings({ clientRules: st.clientRules || '', evalRules: st.evalRules || '', criteria: st.criteria || [], knowledge: st.knowledge || '' });
+    setSettings({ clientRules: st.clientRules || '', evalRules: st.evalRules || '', criteria: st.criteria || [], knowledge: st.knowledge || '', templates: (st as any).templates || [] });
   };
   useEffect(() => { load(); }, []);
 
@@ -95,6 +95,23 @@ export default function TrainerAdmin({ employees, showToast }: Props) {
           <Field label="Критерии оценки" hint="По одному в строке.">
             <textarea value={settings.criteria.join('\n')} onChange={e => setSettings({ ...settings, criteria: e.target.value.split('\n').map(s => s.trim()).filter(Boolean) })} rows={5} className={TEXTAREA} />
           </Field>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-1">Шаблоны ответов <span className="text-gray-300 normal-case">(видят сотрудники в «Материалах»)</span></label>
+              <button onClick={() => setSettings({ ...settings, templates: [...settings.templates, { title: '', text: '' }] })} className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-[#00A3FF]"><Plus size={12} /> Шаблон</button>
+            </div>
+            {settings.templates.map((t, i) => (
+              <div key={i} className="border border-gray-100 rounded-2xl p-4 space-y-2">
+                <div className="flex gap-2">
+                  <input value={t.title} onChange={e => { const n = [...settings.templates]; n[i] = { ...n[i], title: e.target.value }; setSettings({ ...settings, templates: n }); }} placeholder="Название шаблона" className={INPUT} />
+                  <button onClick={() => setSettings({ ...settings, templates: settings.templates.filter((_, x) => x !== i) })} className="px-3 text-red-500 hover:bg-red-500/10 rounded-xl shrink-0"><Trash2 size={14} /></button>
+                </div>
+                <textarea value={t.text} onChange={e => { const n = [...settings.templates]; n[i] = { ...n[i], text: e.target.value }; setSettings({ ...settings, templates: n }); }} placeholder="Текст шаблона" rows={3} className={TEXTAREA} />
+              </div>
+            ))}
+          </div>
+
           <button onClick={saveSettings} disabled={saving} className="flex items-center gap-2 px-8 py-4 bg-[#002D57] text-white rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-[#00A3FF] transition-all disabled:opacity-50">
             <Save size={14} /> Сохранить настройки
           </button>
@@ -161,6 +178,9 @@ export default function TrainerAdmin({ employees, showToast }: Props) {
                 <Field label="Первое сообщение клиента"><textarea value={editing.startMessage} onChange={e => upd({ startMessage: e.target.value })} rows={2} className={TEXTAREA} /></Field>
                 <Field label="Скрытая инструкция AI-клиенту" hint="Поведение, скрытые факты, ловушки, развязка. Сотрудник этого НЕ видит.">
                   <textarea value={editing.clientPrompt} onChange={e => upd({ clientPrompt: e.target.value })} rows={6} className={TEXTAREA} />
+                </Field>
+                <Field label="Эталонный диалог" hint="Образец правильного диалога. Сотрудник видит его после разбора.">
+                  <textarea value={editing.referenceDialog} onChange={e => upd({ referenceDialog: e.target.value })} rows={5} className={TEXTAREA} />
                 </Field>
 
                 <div className="flex items-center gap-6">

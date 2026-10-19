@@ -5,6 +5,7 @@ import { contentService } from '../services/contentService';
 import { bitrixService } from '../services/bitrixService';
 import { UserProfile, CourseResult, Course } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
+import TrainerAnalytics from './TrainerAnalytics';
 
 interface AnalyticsViewProps {
   results: CourseResult[];
@@ -28,6 +29,7 @@ export default function AnalyticsView({ results: _initialResults, courses, curre
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
   const [courseAttempts, setCourseAttempts] = useState<any[]>([]);
+  const [section, setSection] = useState<'courses' | 'trainer'>('courses');
 
   useEffect(() => {
     setExpandedUserId(null);
@@ -369,6 +371,25 @@ export default function AnalyticsView({ results: _initialResults, courses, curre
   return (
     <div className="flex-1 overflow-y-auto p-10 bg-[#F5F7FA]">
       <div className="max-w-7xl mx-auto">
+        <div className="flex bg-white p-1 rounded-2xl border border-gray-100 shadow-sm mb-10 w-fit">
+          {[{ id: 'courses', label: 'Курсы' }, { id: 'trainer', label: 'Тренажёр поддержки' }].map((t) => (
+            <button key={t.id} onClick={() => setSection(t.id as any)}
+              className={`px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${section === t.id ? 'bg-[#002D57] text-white shadow-lg' : 'text-gray-400 hover:text-[#002D57]'}`}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {section === 'trainer' ? (
+          <>
+            <header className="mb-10">
+              <h1 className="text-4xl sm:text-5xl font-display font-black uppercase tracking-tight text-[#002D57] leading-none">Аналитика тренажёра</h1>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[#00A3FF] mt-4">Результаты и слабые места в навыках поддержки</p>
+            </header>
+            <TrainerAnalytics employees={employees} />
+          </>
+        ) : (
+        <>
         <header className="mb-16 flex items-center justify-between">
           <div>
             <h1 className="text-5xl font-display font-black uppercase tracking-tight text-[#002D57] leading-none">Аналитика обучения</h1>
@@ -611,6 +632,8 @@ export default function AnalyticsView({ results: _initialResults, courses, curre
             </tbody>
           </table>
         </div>
+        </>
+        )}
       </div>
     </div>
   );

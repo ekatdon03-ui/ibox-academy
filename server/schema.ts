@@ -202,9 +202,11 @@ CREATE TABLE IF NOT EXISTS trainer_scenarios (
   is_public BOOLEAN DEFAULT TRUE,       -- visible to everyone, or only to assigned
   assigned_to_users JSONB DEFAULT '[]'::jsonb,
   assigned_to_departments JSONB DEFAULT '[]'::jsonb,
+  reference_dialog TEXT DEFAULT '',     -- model dialog shown after the session
   position INTEGER DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT now()
 );
+ALTER TABLE trainer_scenarios ADD COLUMN IF NOT EXISTS reference_dialog TEXT DEFAULT '';
 
 -- One training session: dialog + evaluation.
 CREATE TABLE IF NOT EXISTS trainer_sessions (

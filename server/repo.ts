@@ -470,7 +470,8 @@ function rowToScenario(r: any, forAdmin = false): any {
     personaEmoji: r.persona_emoji || '🙂', personaDesc: r.persona_desc || '',
     startMessage: r.start_message || '', active: r.active,
     isPublic: r.is_public, assignedToUsers: r.assigned_to_users || [],
-    assignedToDepartments: r.assigned_to_departments || [], position: r.position ?? 0,
+    assignedToDepartments: r.assigned_to_departments || [],
+    referenceDialog: r.reference_dialog || '', position: r.position ?? 0,
   };
   // The hidden client prompt is only exposed to admins (editing).
   if (forAdmin) base.clientPrompt = r.client_prompt || '';
@@ -493,8 +494,8 @@ export async function createTrainerScenario(s: any): Promise<string> {
   await query(
     `INSERT INTO trainer_scenarios
        (id, title, group_name, channel, difficulty, persona_name, persona_emoji, persona_desc,
-        start_message, client_prompt, active, is_public, assigned_to_users, assigned_to_departments, position)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb,$15)
+        start_message, client_prompt, active, is_public, assigned_to_users, assigned_to_departments, reference_dialog, position)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb,$15,$16)
      ON CONFLICT (id) DO UPDATE SET
        title=EXCLUDED.title, group_name=EXCLUDED.group_name, channel=EXCLUDED.channel,
        difficulty=EXCLUDED.difficulty, persona_name=EXCLUDED.persona_name,
@@ -502,11 +503,12 @@ export async function createTrainerScenario(s: any): Promise<string> {
        start_message=EXCLUDED.start_message, client_prompt=EXCLUDED.client_prompt,
        active=EXCLUDED.active, is_public=EXCLUDED.is_public,
        assigned_to_users=EXCLUDED.assigned_to_users,
-       assigned_to_departments=EXCLUDED.assigned_to_departments, position=EXCLUDED.position`,
+       assigned_to_departments=EXCLUDED.assigned_to_departments,
+       reference_dialog=EXCLUDED.reference_dialog, position=EXCLUDED.position`,
     [id, s.title || '', s.groupName || '', s.channel || 'chat', s.difficulty || 'basic',
      s.personaName || 'Клиент', s.personaEmoji || '🙂', s.personaDesc || '',
      s.startMessage || '', s.clientPrompt || '', s.active !== false, s.isPublic !== false,
-     j(s.assignedToUsers || []), j(s.assignedToDepartments || []), intOr(s.position, 0)]
+     j(s.assignedToUsers || []), j(s.assignedToDepartments || []), s.referenceDialog || '', intOr(s.position, 0)]
   );
   return id;
 }
@@ -552,7 +554,15 @@ export async function seedTrainerIfEmpty(seed: {
 }): Promise<void> {
   const cnt = (await query('SELECT COUNT(*)::int AS n FROM trainer_scenarios')).rows[0]?.n ?? 0;
   const hasSettings = (await query(`SELECT 1 FROM settings WHERE key='trainer_settings'`)).rows.length > 0;
-  if (!hasSettings) await saveTrainerSettings(seed.settings);
+  if (!hasSettings) {
+    await saveTrainerSettings(seed.settings);
+  } else if (seed.settings?.templates?.length) {
+    // Backfill default templates into an existing install that has none yet.
+    const existing = await getTrainerSettings();
+    if (!existing.templates || existing.templates.length === 0) {
+      await saveTrainerSettings({ ...existing, templates: seed.settings.templates });
+    }
+  }
   if (cnt === 0) {
     for (const s of seed.scenarios) await createTrainerScenario(s);
     console.log(`[trainer] seeded ${seed.scenarios.length} scenarios`);

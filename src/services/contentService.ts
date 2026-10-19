@@ -303,8 +303,8 @@ export const contentService = {
   async deleteTrainerScenario(id: string): Promise<void> {
     await safe(api.del(`/api/trainer/scenarios/${encodeURIComponent(id)}`), undefined);
   },
-  async getTrainerSettings(): Promise<{ clientRules: string; evalRules: string; criteria: string[]; knowledge: string }> {
-    return safe(api.get('/api/trainer/settings'), { clientRules: '', evalRules: '', criteria: [], knowledge: '' });
+  async getTrainerSettings(): Promise<{ clientRules: string; evalRules: string; criteria: string[]; knowledge: string; templates?: { title: string; text: string }[] }> {
+    return safe(api.get('/api/trainer/settings'), { clientRules: '', evalRules: '', criteria: [], knowledge: '', templates: [] });
   },
   async saveTrainerSettings(s: any): Promise<void> {
     await api.put('/api/trainer/settings', s);
@@ -312,6 +312,14 @@ export const contentService = {
   async trainerChat(scenarioId: string, message: string, history: any[]): Promise<string> {
     const r = await api.post<{ reply: string }>('/api/trainer/chat', { scenarioId, message, history });
     return r.reply || '';
+  },
+  async trainerOptions(scenarioId: string, history: any[]): Promise<{ id: string; text: string; correct: boolean; note: string }[]> {
+    const r = await safe<any>(api.post('/api/trainer/options', { scenarioId, history }), { options: [] });
+    return r.options || [];
+  },
+  async trainerHint(scenarioId: string, history: any[]): Promise<string> {
+    const r = await safe<any>(api.post('/api/trainer/hint', { scenarioId, history }), { hint: '' });
+    return r.hint || '';
   },
   async trainerEvaluate(scenarioId: string, history: any[]): Promise<{ score: number; criteriaScores: any[]; good: string[]; feedback: string }> {
     return safe(api.post('/api/trainer/evaluate', { scenarioId, history }), { score: 0, criteriaScores: [], good: [], feedback: 'Не удалось получить оценку.' });

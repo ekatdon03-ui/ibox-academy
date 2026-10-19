@@ -11,7 +11,7 @@ import { uploadToS3, s3Configured, presignUpload, ensureBucketCors, getObjectStr
 import { signToken, requireAdmin, requireAuth, isAdminClaims, verifyToken, ADMIN_UIDS, ADMIN_EMAILS } from './server/auth';
 import { parseMoodleXml } from './server/moodle';
 import { importScormArchive } from './server/scorm';
-import { DEFAULT_CLIENT_RULES, DEFAULT_EVAL_RULES, DEFAULT_CRITERIA, DEFAULT_KNOWLEDGE, DEFAULT_SCENARIOS } from './server/trainerSeed';
+import { DEFAULT_CLIENT_RULES, DEFAULT_EVAL_RULES, DEFAULT_CRITERIA, DEFAULT_KNOWLEDGE, DEFAULT_SCENARIOS, DEFAULT_TEMPLATES } from './server/trainerSeed';
 
 // Firebase Admin — for generating custom tokens (Bitrix auth)
 let firebaseAdmin: any = null;
@@ -86,7 +86,7 @@ async function startServer() {
   // Seed the support AI-trainer with defaults on first run (admin edits later).
   if (dbConfigured()) {
     repo.seedTrainerIfEmpty({
-      settings: { clientRules: DEFAULT_CLIENT_RULES, evalRules: DEFAULT_EVAL_RULES, criteria: DEFAULT_CRITERIA, knowledge: DEFAULT_KNOWLEDGE },
+      settings: { clientRules: DEFAULT_CLIENT_RULES, evalRules: DEFAULT_EVAL_RULES, criteria: DEFAULT_CRITERIA, knowledge: DEFAULT_KNOWLEDGE, templates: DEFAULT_TEMPLATES },
       scenarios: DEFAULT_SCENARIOS,
     }).catch((e) => console.error('[startup] trainer seed error:', e.message));
   }
@@ -377,6 +377,57 @@ ${scn.clientPrompt}`;
     contents.push({ role: 'user', parts: [{ text: message || '' }] });
     const reply = await geminiServerCall(contents, system, 400, 0.85);
     res.json({ reply });
+  }));
+
+  // Generate 3 candidate employee replies (one correct, two flawed) for "choice" mode.
+  app.post('/api/trainer/options', requireAuthSoft, wrap(async (req, res) => {
+    const { scenarioId, history } = req.body || {};
+    const scn = await repo.getTrainerScenarioFull(scenarioId);
+    const settings = await repo.getTrainerSettings();
+    const dialog = (history || []).map((m: any) => {
+      const role = m.role === 'user' ? 'СОТРУДНИК' : 'КЛИЕНТ';
+      const text = Array.isArray(m.parts) ? (m.parts[0]?.text ?? '') : String(m.parts ?? '');
+      return `${role}: ${text}`;
+    }).join('\n');
+    const system = `Ты — методист обучения поддержки iBOX. Опираясь на базу знаний, составь варианты ответа оператора.
+
+БАЗА ЗНАНИЙ:
+${settings.knowledge || ''}`;
+    const prompt = `Сценарий: ${scn?.title || ''}. Канал: ${scn?.channel === 'call' ? 'звонок' : 'чат'}.
+Вот диалог. Предложи РОВНО 3 возможных СЛЕДУЮЩИХ ответа оператора на последнюю реплику клиента:
+- ровно один полностью правильный по базе знаний и тону,
+- два правдоподобных, но с типичной ошибкой (неверный факт, пропуск шага, грубость/сухость, сразу в сервис без диагностики и т.п.).
+Ответы короткие, как в реальном чате. Верни СТРОГО JSON:
+{"options":[{"text":"<реплика>","correct":<true|false>,"note":"<чем хорош/плох, кратко>"}]}
+
+ДИАЛОГ:
+${dialog}`;
+    const raw = await geminiServerCall([{ role: 'user', parts: [{ text: prompt }] }], system, 900, 0.6);
+    let parsed: any = null;
+    try { parsed = JSON.parse(raw.replace(/```json|```/gi, '').trim()); } catch {}
+    let options = Array.isArray(parsed?.options) ? parsed.options : [];
+    options = options.slice(0, 3).map((o: any, i: number) => ({ id: `o${i}`, text: String(o.text || ''), correct: !!o.correct, note: String(o.note || '') }));
+    // Shuffle so the correct one isn't always first.
+    for (let i = options.length - 1; i > 0; i--) { const k = Math.floor(Math.random() * (i + 1)); [options[i], options[k]] = [options[k], options[i]]; }
+    res.json({ options });
+  }));
+
+  // One next-step hint (training mode) — a direction, not a ready answer.
+  app.post('/api/trainer/hint', requireAuthSoft, wrap(async (req, res) => {
+    const { scenarioId, history } = req.body || {};
+    const scn = await repo.getTrainerScenarioFull(scenarioId);
+    const settings = await repo.getTrainerSettings();
+    const dialog = (history || []).map((m: any) => {
+      const role = m.role === 'user' ? 'СОТРУДНИК' : 'КЛИЕНТ';
+      const text = Array.isArray(m.parts) ? (m.parts[0]?.text ?? '') : String(m.parts ?? '');
+      return `${role}: ${text}`;
+    }).join('\n');
+    const system = `Ты — наставник поддержки iBOX. Дай подсказку оператору — КАКОЙ СЛЕДУЮЩИЙ ШАГ сделать, но НЕ давай готовый текст ответа. Одно короткое предложение.
+
+БАЗА ЗНАНИЙ:
+${settings.knowledge || ''}`;
+    const hint = await geminiServerCall([{ role: 'user', parts: [{ text: `Сценарий: ${scn?.title || ''}.\nДИАЛОГ:\n${dialog}\n\nПодскажи следующий шаг оператору (без готового текста).` }] }], system, 150, 0.4);
+    res.json({ hint: (hint || '').trim() });
   }));
 
   // AI-evaluator (uses knowledge base + criteria; runs server-side)
