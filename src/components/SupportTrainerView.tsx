@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   Send, X, Headphones, MessageCircle, Phone, PhoneCall, ChevronRight, Award, CheckCircle,
-  Clock, RotateCcw, Lightbulb, BookOpen, History, Check, PhoneOff, FileText, ArrowLeft,
+  Clock, RotateCcw, Lightbulb, History, PhoneOff, FileText, ArrowLeft,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
@@ -28,9 +28,8 @@ const DIFFICULTY: Record<string, { label: string; cls: string }> = {
 };
 
 export default function SupportTrainerView({ user }: Props) {
-  const [tab, setTab] = useState<'scenarios' | 'materials' | 'history'>('scenarios');
+  const [tab, setTab] = useState<'scenarios' | 'history'>('scenarios');
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
-  const [settings, setSettings] = useState<{ knowledge: string; templates: { title: string; text: string }[]; docs: { title: string; text: string }[] }>({ knowledge: '', templates: [], docs: [] });
   const [sessions, setSessions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -58,11 +57,9 @@ export default function SupportTrainerView({ user }: Props) {
   useEffect(() => {
     Promise.all([
       contentService.getTrainerScenarios(),
-      contentService.getTrainerSettings(),
       contentService.getMyTrainerSessions(),
-    ]).then(([sc, st, ss]) => {
+    ]).then(([sc, ss]) => {
       setScenarios(sc);
-      setSettings({ knowledge: st.knowledge || '', templates: st.templates || [], docs: (st as any).docs || [] });
       setSessions(ss);
       setLoading(false);
     }).catch(() => setLoading(false));
@@ -391,7 +388,7 @@ export default function SupportTrainerView({ user }: Props) {
         </header>
 
         <div className="flex bg-white p-1 rounded-2xl border border-gray-100 shadow-sm mb-8 w-fit">
-          {[{ id: 'scenarios', label: 'Сценарии', Icon: MessageCircle }, { id: 'materials', label: 'Материалы', Icon: BookOpen }, { id: 'history', label: 'История', Icon: History }].map((t) => (
+          {[{ id: 'scenarios', label: 'Сценарии', Icon: MessageCircle }, { id: 'history', label: 'История', Icon: History }].map((t) => (
             <button key={t.id} onClick={() => setTab(t.id as any)} className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${tab === t.id ? 'bg-[#002D57] text-white shadow-lg' : 'text-gray-400 hover:text-[#002D57]'}`}>
               <t.Icon size={13} /> {t.label}
             </button>
@@ -429,44 +426,6 @@ export default function SupportTrainerView({ user }: Props) {
               </section>
             ))
           )
-        ) : tab === 'materials' ? (
-          <div className="space-y-6">
-            {settings.knowledge && (
-              <div className="bg-white rounded-[32px] border border-gray-100 shadow-sm p-6 sm:p-10">
-                <h2 className="text-lg font-display font-black uppercase tracking-tight text-[#002D57] mb-5 flex items-center gap-2"><BookOpen size={18} /> База знаний</h2>
-                <div className="text-sm text-[#002D57] whitespace-pre-wrap leading-relaxed font-medium">{settings.knowledge}</div>
-              </div>
-            )}
-            {settings.templates.length > 0 && (
-              <div className="bg-white rounded-[32px] border border-gray-100 shadow-sm p-6 sm:p-10">
-                <h2 className="text-lg font-display font-black uppercase tracking-tight text-[#002D57] mb-5 flex items-center gap-2"><FileText size={18} /> Шаблоны ответов</h2>
-                <div className="space-y-4">
-                  {settings.templates.map((t, i) => (
-                    <div key={i} className="border border-gray-100 rounded-2xl p-5">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-[#00A3FF] mb-2">{t.title}</p>
-                      <p className="text-sm text-[#002D57] whitespace-pre-wrap leading-relaxed">{t.text}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {settings.docs.length > 0 && (
-              <div className="bg-white rounded-[32px] border border-gray-100 shadow-sm p-6 sm:p-10">
-                <h2 className="text-lg font-display font-black uppercase tracking-tight text-[#002D57] mb-5 flex items-center gap-2"><BookOpen size={18} /> Учебные документы</h2>
-                <div className="space-y-4">
-                  {settings.docs.map((d, i) => (
-                    <details key={i} className="border border-gray-100 rounded-2xl p-5">
-                      <summary className="text-[10px] font-black uppercase tracking-widest text-[#00A3FF] cursor-pointer">📄 {d.title}</summary>
-                      <p className="text-sm text-[#002D57] whitespace-pre-wrap leading-relaxed mt-3">{d.text}</p>
-                    </details>
-                  ))}
-                </div>
-              </div>
-            )}
-            {!settings.knowledge && settings.templates.length === 0 && settings.docs.length === 0 && (
-              <div className="py-20 bg-white rounded-[48px] border border-dashed border-gray-200 text-center text-gray-400 font-display font-black text-xs uppercase tracking-widest">Материалы ещё не добавлены</div>
-            )}
-          </div>
         ) : (
           sessions.length === 0 ? (
             <div className="py-20 bg-white rounded-[48px] border border-dashed border-gray-200 text-center text-gray-400 font-display font-black text-xs uppercase tracking-widest">Вы ещё не проходили тренажёр</div>

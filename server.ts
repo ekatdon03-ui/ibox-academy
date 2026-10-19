@@ -359,8 +359,8 @@ async function startServer() {
   app.post('/api/trainer/scenarios', requireAdmin, wrap(async (req, res) => res.json({ id: await repo.createTrainerScenario(req.body) })));
   app.delete('/api/trainer/scenarios/:id', requireAdmin, wrap(async (req, res) => { await repo.deleteTrainerScenario(req.params.id); res.json({ ok: true }); }));
 
-  // Settings (read: any authed user; write: admin only)
-  app.get('/api/trainer/settings', requireAuthSoft, wrap(async (_req, res) => res.json(await repo.getTrainerSettings())));
+  // Settings (admin only — knowledge base & templates are not exposed to employees)
+  app.get('/api/trainer/settings', requireAdmin, wrap(async (_req, res) => res.json(await repo.getTrainerSettings())));
   app.put('/api/trainer/settings', requireAdmin, wrap(async (req, res) => { await repo.saveTrainerSettings(req.body); res.json({ ok: true }); }));
 
   // AI-client reply (server-side: the hidden scenario prompt never reaches the browser)
