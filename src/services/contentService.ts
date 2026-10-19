@@ -303,8 +303,16 @@ export const contentService = {
   async deleteTrainerScenario(id: string): Promise<void> {
     await safe(api.del(`/api/trainer/scenarios/${encodeURIComponent(id)}`), undefined);
   },
-  async getTrainerSettings(): Promise<{ clientRules: string; evalRules: string; criteria: string[]; knowledge: string; templates?: { title: string; text: string }[] }> {
-    return safe(api.get('/api/trainer/settings'), { clientRules: '', evalRules: '', criteria: [], knowledge: '', templates: [] });
+  async getTrainerSettings(): Promise<{ clientRules: string; evalRules: string; criteria: string[]; knowledge: string; templates?: { title: string; text: string }[]; docs?: { title: string; text: string }[] }> {
+    return safe(api.get('/api/trainer/settings'), { clientRules: '', evalRules: '', criteria: [], knowledge: '', templates: [], docs: [] });
+  },
+  async reseedTrainer(): Promise<{ ok: boolean; scenarios: number }> {
+    return api.post('/api/trainer/reseed', {});
+  },
+  // Extract plain text from an uploaded file (PDF/video/image) — reuses the media-knowledge extractor.
+  async extractFileText(url: string): Promise<string> {
+    const r = await safe<any>(api.post('/api/extract-media-knowledge', { url }), { text: '' });
+    return r.text || '';
   },
   async saveTrainerSettings(s: any): Promise<void> {
     await api.put('/api/trainer/settings', s);

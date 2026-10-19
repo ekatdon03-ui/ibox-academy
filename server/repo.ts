@@ -471,10 +471,12 @@ function rowToScenario(r: any, forAdmin = false): any {
     startMessage: r.start_message || '', active: r.active,
     isPublic: r.is_public, assignedToUsers: r.assigned_to_users || [],
     assignedToDepartments: r.assigned_to_departments || [],
-    referenceDialog: r.reference_dialog || '', position: r.position ?? 0,
+    referenceDialog: r.reference_dialog || '',
+    answerFormat: r.answer_format || 'free', trainerMode: r.trainer_mode || 'training',
+    position: r.position ?? 0,
   };
-  // The hidden client prompt is only exposed to admins (editing).
-  if (forAdmin) base.clientPrompt = r.client_prompt || '';
+  // Hidden client prompt and eval checklist are only exposed to admins / server-side.
+  if (forAdmin) { base.clientPrompt = r.client_prompt || ''; base.checklist = r.checklist || ''; }
   return base;
 }
 export async function getTrainerScenarios(forAdmin = false): Promise<any[]> {
@@ -494,8 +496,9 @@ export async function createTrainerScenario(s: any): Promise<string> {
   await query(
     `INSERT INTO trainer_scenarios
        (id, title, group_name, channel, difficulty, persona_name, persona_emoji, persona_desc,
-        start_message, client_prompt, active, is_public, assigned_to_users, assigned_to_departments, reference_dialog, position)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb,$15,$16)
+        start_message, client_prompt, active, is_public, assigned_to_users, assigned_to_departments,
+        reference_dialog, checklist, answer_format, trainer_mode, position)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb,$15,$16,$17,$18,$19)
      ON CONFLICT (id) DO UPDATE SET
        title=EXCLUDED.title, group_name=EXCLUDED.group_name, channel=EXCLUDED.channel,
        difficulty=EXCLUDED.difficulty, persona_name=EXCLUDED.persona_name,
@@ -504,11 +507,13 @@ export async function createTrainerScenario(s: any): Promise<string> {
        active=EXCLUDED.active, is_public=EXCLUDED.is_public,
        assigned_to_users=EXCLUDED.assigned_to_users,
        assigned_to_departments=EXCLUDED.assigned_to_departments,
-       reference_dialog=EXCLUDED.reference_dialog, position=EXCLUDED.position`,
+       reference_dialog=EXCLUDED.reference_dialog, checklist=EXCLUDED.checklist,
+       answer_format=EXCLUDED.answer_format, trainer_mode=EXCLUDED.trainer_mode, position=EXCLUDED.position`,
     [id, s.title || '', s.groupName || '', s.channel || 'chat', s.difficulty || 'basic',
      s.personaName || 'Клиент', s.personaEmoji || '🙂', s.personaDesc || '',
      s.startMessage || '', s.clientPrompt || '', s.active !== false, s.isPublic !== false,
-     j(s.assignedToUsers || []), j(s.assignedToDepartments || []), s.referenceDialog || '', intOr(s.position, 0)]
+     j(s.assignedToUsers || []), j(s.assignedToDepartments || []), s.referenceDialog || '',
+     s.checklist || '', s.answerFormat || 'free', s.trainerMode || 'training', intOr(s.position, 0)]
   );
   return id;
 }
@@ -564,7 +569,14 @@ export async function seedTrainerIfEmpty(seed: {
     }
   }
   if (cnt === 0) {
-    for (const s of seed.scenarios) await createTrainerScenario(s);
+    for (const s of seed.scenarios) await createTrainerScenario({ ...s, id: s.id || `seed_${s.position}` });
     console.log(`[trainer] seeded ${seed.scenarios.length} scenarios`);
   }
+}
+// Force-apply the TZ defaults: overwrite settings, drop old auto-seeded cards, upsert the seed set.
+export async function reseedTrainer(seed: { settings: any; scenarios: any[] }, oldTitles: string[] = []): Promise<number> {
+  await saveTrainerSettings(seed.settings);
+  if (oldTitles.length) await query('DELETE FROM trainer_scenarios WHERE title = ANY($1)', [oldTitles]);
+  for (const s of seed.scenarios) await createTrainerScenario({ ...s, id: s.id || `seed_${s.position}` });
+  return seed.scenarios.length;
 }

@@ -203,10 +203,16 @@ CREATE TABLE IF NOT EXISTS trainer_scenarios (
   assigned_to_users JSONB DEFAULT '[]'::jsonb,
   assigned_to_departments JSONB DEFAULT '[]'::jsonb,
   reference_dialog TEXT DEFAULT '',     -- model dialog shown after the session
+  checklist TEXT DEFAULT '',            -- required actions (used by evaluator, hidden from client)
+  answer_format TEXT DEFAULT 'free',    -- free | choice (set by the lead, not the employee)
+  trainer_mode TEXT DEFAULT 'training', -- training (hints) | attestation
   position INTEGER DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 ALTER TABLE trainer_scenarios ADD COLUMN IF NOT EXISTS reference_dialog TEXT DEFAULT '';
+ALTER TABLE trainer_scenarios ADD COLUMN IF NOT EXISTS checklist TEXT DEFAULT '';
+ALTER TABLE trainer_scenarios ADD COLUMN IF NOT EXISTS answer_format TEXT DEFAULT 'free';
+ALTER TABLE trainer_scenarios ADD COLUMN IF NOT EXISTS trainer_mode TEXT DEFAULT 'training';
 
 -- One training session: dialog + evaluation.
 CREATE TABLE IF NOT EXISTS trainer_sessions (

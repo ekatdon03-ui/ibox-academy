@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Save, X, Search, Check, Settings2, Users as UsersIcon } from 'lucide-react';
+import { Plus, Trash2, Save, X, Search, Check, Settings2, Users as UsersIcon, RefreshCw, Upload } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { contentService } from '../services/contentService';
 import { UserProfile } from '../types';
@@ -9,14 +9,16 @@ interface Props { employees: UserProfile[]; showToast: (msg: string, isError?: b
 type Scenario = {
   id?: string; title: string; groupName: string; channel: string; difficulty: string;
   personaName: string; personaEmoji: string; personaDesc: string; startMessage: string;
-  clientPrompt: string; referenceDialog: string; active: boolean; isPublic: boolean;
+  clientPrompt: string; referenceDialog: string; checklist: string;
+  answerFormat: string; trainerMode: string; active: boolean; isPublic: boolean;
   assignedToUsers: string[]; assignedToDepartments: string[]; position?: number;
 };
 
 const EMPTY: Scenario = {
   title: '', groupName: '', channel: 'chat', difficulty: 'basic',
   personaName: '', personaEmoji: '🙂', personaDesc: '', startMessage: '', clientPrompt: '',
-  referenceDialog: '', active: true, isPublic: true, assignedToUsers: [], assignedToDepartments: [],
+  referenceDialog: '', checklist: '', answerFormat: 'free', trainerMode: 'training',
+  active: true, isPublic: true, assignedToUsers: [], assignedToDepartments: [],
 };
 
 const INPUT = 'w-full bg-[#F5F7FA] rounded-2xl px-4 py-3 outline-none font-bold text-sm focus:ring-4 focus:ring-[#00A3FF]/10 transition-all';
@@ -24,7 +26,9 @@ const TEXTAREA = 'w-full bg-[#F5F7FA] rounded-2xl px-4 py-3 outline-none font-me
 
 export default function TrainerAdmin({ employees, showToast }: Props) {
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
-  const [settings, setSettings] = useState({ clientRules: '', evalRules: '', criteria: [] as string[], knowledge: '', templates: [] as { title: string; text: string }[] });
+  const [settings, setSettings] = useState({ clientRules: '', evalRules: '', criteria: [] as string[], knowledge: '', templates: [] as { title: string; text: string }[], docs: [] as { title: string; text: string }[] });
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+  const [reseeding, setReseeding] = useState(false);
   const [editing, setEditing] = useState<Scenario | null>(null);
   const [saving, setSaving] = useState(false);
   const [userSearch, setUserSearch] = useState('');
@@ -32,7 +36,38 @@ export default function TrainerAdmin({ employees, showToast }: Props) {
   const load = async () => {
     const [sc, st] = await Promise.all([contentService.getTrainerScenarios(), contentService.getTrainerSettings()]);
     setScenarios(sc);
-    setSettings({ clientRules: st.clientRules || '', evalRules: st.evalRules || '', criteria: st.criteria || [], knowledge: st.knowledge || '', templates: (st as any).templates || [] });
+    setSettings({ clientRules: st.clientRules || '', evalRules: st.evalRules || '', criteria: st.criteria || [], knowledge: st.knowledge || '', templates: (st as any).templates || [], docs: (st as any).docs || [] });
+  };
+
+  const handleUploadDoc = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setUploadingDoc(true);
+    try {
+      const up = await contentService.uploadFile(file);
+      showToast('Файл загружен, извлекаю текст…');
+      const text = await contentService.extractFileText(up.url);
+      if (!text) { showToast('Не удалось извлечь текст из файла', true); return; }
+      const docs = [...settings.docs, { title: file.name, text }];
+      const next = { ...settings, docs };
+      setSettings(next);
+      await contentService.saveTrainerSettings(next);
+      showToast(`Материал добавлен в базу знаний: ${file.name}`);
+    } catch (err: any) {
+      showToast('Ошибка: ' + (err?.message || ''), true);
+    } finally { setUploadingDoc(false); }
+  };
+
+  const handleReseed = async () => {
+    if (reseeding) return;
+    setReseeding(true);
+    try {
+      const r = await contentService.reseedTrainer();
+      showToast(`Загружено из ТЗ: ${r.scenarios} сценариев + материалы`);
+      await load();
+    } catch (e: any) { showToast('Ошибка: ' + (e?.message || ''), true); }
+    finally { setReseeding(false); }
   };
   useEffect(() => { load(); }, []);
 
@@ -77,10 +112,13 @@ export default function TrainerAdmin({ employees, showToast }: Props) {
       <div className="bg-white rounded-[40px] shadow-sm border border-gray-100 p-8 sm:p-10">
         <header className="flex items-center gap-4 mb-8">
           <div className="w-12 h-12 bg-[#002D57] text-white rounded-2xl flex items-center justify-center"><Settings2 size={20} /></div>
-          <div>
+          <div className="flex-1">
             <h2 className="text-xl font-display font-black uppercase tracking-tight text-[#002D57]">Инструкции и база знаний</h2>
             <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-0.5">Редактируется только здесь, в админке</p>
           </div>
+          <button onClick={handleReseed} disabled={reseeding} className="flex items-center gap-2 px-5 py-3 bg-[#00A3FF]/10 text-[#00A3FF] rounded-2xl font-black uppercase tracking-widest text-[9px] hover:bg-[#00A3FF] hover:text-white transition-all disabled:opacity-50">
+            <RefreshCw size={13} className={reseeding ? 'animate-spin' : ''} /> {reseeding ? 'Загрузка…' : 'Загрузить из ТЗ'}
+          </button>
         </header>
         <div className="space-y-6">
           <Field label="Правила поведения AI-клиента" hint="Как ведёт себя клиент (общее для всех сценариев). Не содержит правильных ответов.">
@@ -92,6 +130,22 @@ export default function TrainerAdmin({ employees, showToast }: Props) {
           <Field label="База знаний (эталон для оценки)" hint="Факты, по которым проверяется правильность ответов. AI-клиенту не передаётся.">
             <textarea value={settings.knowledge} onChange={e => setSettings({ ...settings, knowledge: e.target.value })} rows={8} className={TEXTAREA} />
           </Field>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-1">Файлы для обучения <span className="text-gray-300 normal-case">(PDF, видео, презентации — текст извлечётся и добавится в базу знаний)</span></label>
+              <div className="relative">
+                <input type="file" onChange={handleUploadDoc} disabled={uploadingDoc} className="absolute inset-0 opacity-0 cursor-pointer" />
+                <span className="flex items-center gap-1.5 px-4 py-2 bg-[#002D57] text-white rounded-xl text-[9px] font-black uppercase tracking-widest"><Upload size={12} /> {uploadingDoc ? 'Загрузка…' : 'Загрузить файл'}</span>
+              </div>
+            </div>
+            {settings.docs.map((d, i) => (
+              <div key={i} className="flex items-center justify-between gap-3 border border-gray-100 rounded-2xl px-4 py-3">
+                <span className="text-xs font-bold text-[#002D57] truncate">📄 {d.title} <span className="text-gray-300 font-medium">({(d.text || '').length} симв.)</span></span>
+                <button onClick={async () => { const docs = settings.docs.filter((_, x) => x !== i); const next = { ...settings, docs }; setSettings(next); await contentService.saveTrainerSettings(next); showToast('Файл удалён'); }} className="text-red-500 hover:bg-red-500/10 rounded-lg p-1.5 shrink-0"><Trash2 size={13} /></button>
+              </div>
+            ))}
+          </div>
           <Field label="Критерии оценки" hint="По одному в строке.">
             <textarea value={settings.criteria.join('\n')} onChange={e => setSettings({ ...settings, criteria: e.target.value.split('\n').map(s => s.trim()).filter(Boolean) })} rows={5} className={TEXTAREA} />
           </Field>
@@ -182,6 +236,23 @@ export default function TrainerAdmin({ employees, showToast }: Props) {
                 <Field label="Эталонный диалог" hint="Образец правильного диалога. Сотрудник видит его после разбора.">
                   <textarea value={editing.referenceDialog} onChange={e => upd({ referenceDialog: e.target.value })} rows={5} className={TEXTAREA} />
                 </Field>
+                <Field label="Чек-лист обязательных действий" hint="Для AI-оценщика. Сотрудник и AI-клиент этого не видят.">
+                  <textarea value={editing.checklist} onChange={e => upd({ checklist: e.target.value })} rows={4} className={TEXTAREA} />
+                </Field>
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Формат ответа (задаёт руководитель)">
+                    <select value={editing.answerFormat} onChange={e => upd({ answerFormat: e.target.value })} className={INPUT}>
+                      <option value="free">Сотрудник пишет сам</option>
+                      <option value="choice">Выбор из 3 вариантов</option>
+                    </select>
+                  </Field>
+                  <Field label="Режим">
+                    <select value={editing.trainerMode} onChange={e => upd({ trainerMode: e.target.value })} className={INPUT}>
+                      <option value="training">Обучение (подсказки)</option>
+                      <option value="attestation">Аттестация</option>
+                    </select>
+                  </Field>
+                </div>
 
                 <div className="flex items-center gap-6">
                   <label className="flex items-center gap-2 cursor-pointer">

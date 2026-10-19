@@ -15,7 +15,8 @@ type Msg = { role: 'user' | 'model'; parts: { text: string }[] };
 type Scenario = {
   id: string; title: string; groupName: string; channel: string; difficulty: string;
   personaName: string; personaEmoji: string; personaDesc: string; startMessage: string;
-  referenceDialog?: string; isPublic?: boolean; assignedToUsers?: string[]; assignedToDepartments?: string[];
+  referenceDialog?: string; answerFormat?: string; trainerMode?: string;
+  isPublic?: boolean; assignedToUsers?: string[]; assignedToDepartments?: string[];
 };
 type Opt = { id: string; text: string; correct: boolean; note: string };
 type Evaluation = { score: number; criteriaScores: { name: string; score: number; comment: string }[]; good: string[]; feedback: string } | null;
@@ -29,7 +30,7 @@ const DIFFICULTY: Record<string, { label: string; cls: string }> = {
 export default function SupportTrainerView({ user }: Props) {
   const [tab, setTab] = useState<'scenarios' | 'materials' | 'history'>('scenarios');
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
-  const [settings, setSettings] = useState<{ knowledge: string; templates: { title: string; text: string }[] }>({ knowledge: '', templates: [] });
+  const [settings, setSettings] = useState<{ knowledge: string; templates: { title: string; text: string }[]; docs: { title: string; text: string }[] }>({ knowledge: '', templates: [], docs: [] });
   const [sessions, setSessions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -61,7 +62,7 @@ export default function SupportTrainerView({ user }: Props) {
       contentService.getMyTrainerSessions(),
     ]).then(([sc, st, ss]) => {
       setScenarios(sc);
-      setSettings({ knowledge: st.knowledge || '', templates: st.templates || [] });
+      setSettings({ knowledge: st.knowledge || '', templates: st.templates || [], docs: (st as any).docs || [] });
       setSessions(ss);
       setLoading(false);
     }).catch(() => setLoading(false));
@@ -80,7 +81,10 @@ export default function SupportTrainerView({ user }: Props) {
   const mood = (s: Scenario) => moodFromEmoji(s.personaEmoji, s.difficulty);
 
   const openScenario = (s: Scenario) => {
-    setActive(s); setPhase('config'); setFormat('free'); setTraining(true);
+    // Mode is configured by the lead on the scenario, not chosen by the employee.
+    setActive(s); setPhase('config');
+    setFormat(s.answerFormat === 'choice' ? 'choice' : 'free');
+    setTraining(s.trainerMode !== 'attestation');
     setMessages([]); setEvaluation(null); setShowRef(false);
     setOptions([]); setPicked(null); setChoiceStats({ correct: 0, total: 0 }); setHint('');
   };
@@ -187,21 +191,13 @@ export default function SupportTrainerView({ user }: Props) {
                 </span>
               </div>
 
-              <div className="mt-8 space-y-5 text-left">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">Формат ответа</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <ModeBtn active={format === 'free'} onClick={() => setFormat('free')} title="Пишу сам" desc="Свободный ответ" />
-                    <ModeBtn active={format === 'choice'} onClick={() => setFormat('choice')} title="Выбор из 3" desc="ИИ даёт варианты" />
-                  </div>
-                </div>
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">Режим</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <ModeBtn active={training} onClick={() => setTraining(true)} title="Обучение" desc="Есть подсказки" />
-                    <ModeBtn active={!training} onClick={() => setTraining(false)} title="Аттестация" desc="Без подсказок" />
-                  </div>
-                </div>
+              <div className="mt-6 flex items-center justify-center gap-2 flex-wrap">
+                <span className="px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest bg-gray-100 text-gray-500">
+                  {format === 'choice' ? 'Выбор из 3 вариантов' : 'Свободный ответ'}
+                </span>
+                <span className="px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest bg-gray-100 text-gray-500">
+                  {training ? 'Обучение (подсказки)' : 'Аттестация'}
+                </span>
               </div>
 
               <button onClick={start} className="mt-8 w-full py-5 bg-[#002D57] text-white rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-[#00A3FF] transition-all flex items-center justify-center gap-2">
@@ -454,7 +450,20 @@ export default function SupportTrainerView({ user }: Props) {
                 </div>
               </div>
             )}
-            {!settings.knowledge && settings.templates.length === 0 && (
+            {settings.docs.length > 0 && (
+              <div className="bg-white rounded-[32px] border border-gray-100 shadow-sm p-6 sm:p-10">
+                <h2 className="text-lg font-display font-black uppercase tracking-tight text-[#002D57] mb-5 flex items-center gap-2"><BookOpen size={18} /> Учебные документы</h2>
+                <div className="space-y-4">
+                  {settings.docs.map((d, i) => (
+                    <details key={i} className="border border-gray-100 rounded-2xl p-5">
+                      <summary className="text-[10px] font-black uppercase tracking-widest text-[#00A3FF] cursor-pointer">📄 {d.title}</summary>
+                      <p className="text-sm text-[#002D57] whitespace-pre-wrap leading-relaxed mt-3">{d.text}</p>
+                    </details>
+                  ))}
+                </div>
+              </div>
+            )}
+            {!settings.knowledge && settings.templates.length === 0 && settings.docs.length === 0 && (
               <div className="py-20 bg-white rounded-[48px] border border-dashed border-gray-200 text-center text-gray-400 font-display font-black text-xs uppercase tracking-widest">Материалы ещё не добавлены</div>
             )}
           </div>
@@ -483,11 +492,3 @@ export default function SupportTrainerView({ user }: Props) {
   );
 }
 
-function ModeBtn({ active, onClick, title, desc }: { active: boolean; onClick: () => void; title: string; desc: string }) {
-  return (
-    <button onClick={onClick} className={`p-4 rounded-2xl border-2 text-left transition-all ${active ? 'border-[#002D57] bg-[#002D57]/5' : 'border-gray-100 hover:border-gray-200'}`}>
-      <p className={`text-xs font-black uppercase tracking-widest ${active ? 'text-[#002D57]' : 'text-gray-400'}`}>{title}</p>
-      <p className="text-[10px] font-bold text-gray-300 mt-0.5">{desc}</p>
-    </button>
-  );
-}

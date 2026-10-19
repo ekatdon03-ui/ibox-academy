@@ -11,7 +11,13 @@ import { uploadToS3, s3Configured, presignUpload, ensureBucketCors, getObjectStr
 import { signToken, requireAdmin, requireAuth, isAdminClaims, verifyToken, ADMIN_UIDS, ADMIN_EMAILS } from './server/auth';
 import { parseMoodleXml } from './server/moodle';
 import { importScormArchive } from './server/scorm';
-import { DEFAULT_CLIENT_RULES, DEFAULT_EVAL_RULES, DEFAULT_CRITERIA, DEFAULT_KNOWLEDGE, DEFAULT_SCENARIOS, DEFAULT_TEMPLATES } from './server/trainerSeed';
+import { DEFAULT_CLIENT_RULES, DEFAULT_EVAL_RULES, DEFAULT_CRITERIA, DEFAULT_KNOWLEDGE, DEFAULT_SCENARIOS, DEFAULT_TEMPLATES, OLD_DEFAULT_TITLES } from './server/trainerSeed';
+
+// Effective knowledge for the evaluator/options = base knowledge + uploaded docs.
+function trainerKnowledge(settings: any): string {
+  const docs = (settings?.docs || []).map((d: any) => `[${d.title || 'Документ'}]\n${d.text || ''}`).join('\n\n');
+  return [settings?.knowledge || '', docs].filter(Boolean).join('\n\n');
+}
 
 // Firebase Admin — for generating custom tokens (Bitrix auth)
 let firebaseAdmin: any = null;
@@ -392,7 +398,7 @@ ${scn.clientPrompt}`;
     const system = `Ты — методист обучения поддержки iBOX. Опираясь на базу знаний, составь варианты ответа оператора.
 
 БАЗА ЗНАНИЙ:
-${settings.knowledge || ''}`;
+${trainerKnowledge(settings)}`;
     const prompt = `Сценарий: ${scn?.title || ''}. Канал: ${scn?.channel === 'call' ? 'звонок' : 'чат'}.
 Вот диалог. Предложи РОВНО 3 возможных СЛЕДУЮЩИХ ответа оператора на последнюю реплику клиента:
 - ровно один полностью правильный по базе знаний и тону,
@@ -425,7 +431,7 @@ ${dialog}`;
     const system = `Ты — наставник поддержки iBOX. Дай подсказку оператору — КАКОЙ СЛЕДУЮЩИЙ ШАГ сделать, но НЕ давай готовый текст ответа. Одно короткое предложение.
 
 БАЗА ЗНАНИЙ:
-${settings.knowledge || ''}`;
+${trainerKnowledge(settings)}`;
     const hint = await geminiServerCall([{ role: 'user', parts: [{ text: `Сценарий: ${scn?.title || ''}.\nДИАЛОГ:\n${dialog}\n\nПодскажи следующий шаг оператору (без готового текста).` }] }], system, 150, 0.4);
     res.json({ hint: (hint || '').trim() });
   }));
@@ -444,8 +450,9 @@ ${settings.knowledge || ''}`;
     const system = `${settings.evalRules || ''}
 
 БАЗА ЗНАНИЙ (эталон для проверки фактов):
-${settings.knowledge || ''}
+${trainerKnowledge(settings)}
 
+${scn?.checklist ? `ОБЯЗАТЕЛЬНЫЕ ДЕЙСТВИЯ СОТРУДНИКА В ЭТОМ СЦЕНАРИИ (чек-лист):\n${scn.checklist}\n` : ''}
 КРИТЕРИИ ОЦЕНКИ: ${criteria.join('; ')}`;
     const prompt = `Сценарий: ${scn?.title || ''}.
 Оцени работу СОТРУДНИКА (игнорируй реплики КЛИЕНТА). Верни СТРОГО JSON без пояснений:
@@ -466,6 +473,15 @@ ${dialog}`;
   app.get('/api/trainer/sessions/me', requireAuthSoft, wrap(async (req: any, res) => res.json(await repo.getTrainerSessionsForUser(req.user?.uid))));
   app.get('/api/trainer/sessions/user/:userId', requireAuthSoft, wrap(async (req, res) => res.json(await repo.getTrainerSessionsForUser(req.params.userId))));
   app.get('/api/trainer/sessions', requireAdmin, wrap(async (_req, res) => res.json(await repo.getAllTrainerSessions())));
+
+  // Re-apply the full TZ content pack (overwrites settings, upserts the 15 scenarios).
+  app.post('/api/trainer/reseed', requireAdmin, wrap(async (_req, res) => {
+    const n = await repo.reseedTrainer({
+      settings: { clientRules: DEFAULT_CLIENT_RULES, evalRules: DEFAULT_EVAL_RULES, criteria: DEFAULT_CRITERIA, knowledge: DEFAULT_KNOWLEDGE, templates: DEFAULT_TEMPLATES },
+      scenarios: DEFAULT_SCENARIOS,
+    }, OLD_DEFAULT_TITLES);
+    res.json({ ok: true, scenarios: n });
+  }));
 
   // ═════════════════════════════════════════════════════════════════════
   // ONE-TIME MIGRATION: Firestore → PostgreSQL (+ base64 files → S3)
